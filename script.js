@@ -2,6 +2,8 @@
   "use strict";
 
   /* ---------------- constants ---------------- */
+  var SUPABASE_URL = "https://iwnkpiwmjvjhibgckipp.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3bmtwaXdtanZqaGliZ2NraXBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODk4MDgsImV4cCI6MjEwNTY2NTgwOH0.7Z2JzLpnYbEMAELTRcgFPek8de80I6zSnApluoeiXJ8";
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
 
