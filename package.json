@@ -1,0 +1,8 @@
+{
+  "name": "appwrite-function",
+  "version": "1.0.0",
+  "description": "Appwrite Function",
+  "main": "src/main.js",
+  "type": "module",
+  "dependencies": {}
+}
