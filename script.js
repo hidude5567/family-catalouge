@@ -4,6 +4,14 @@
   /* ---------------- constants ---------------- */
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
+  var BOOK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M4 4.5c2.2-.9 5-1 8 .3V19c-3-1.3-5.8-1.2-8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 4.5c-2.2-.9-5-1-8 .3V19c3-1.3 5.8-1.2 8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+
+  function coverUrl(isbn) {
+    if (!isbn) return null;
+    var clean = String(isbn).replace(/[-\s]/g, "");
+    if (!clean) return null;
+    return "https://covers.openlibrary.org/b/isbn/" + encodeURIComponent(clean) + "-M.jpg?default=false";
+  }
 
   function hashStr(s) {
     var h = 0;
@@ -264,31 +272,97 @@
 
     grid.innerHTML = filtered.map(function (b, i) {
       var color = spineColor(b.genre);
+      var cover = coverUrl(b.isbn);
       return (
-        '<article class="card" style="--spine:' + color + '; animation-delay:' + Math.min(i * 0.03, 0.4) + 's">' +
-          '<div class="card-tab mono">' + escapeHtml(b.isbn ? "ISBN " + b.isbn.slice(-6) : "NO ISBN") + "</div>" +
-          '<div class="card-actions" style="position:absolute; top:0.6rem; right:0.6rem;">' +
-            '<button class="icon-btn edit-btn" data-id="' + b.id + '" aria-label="Edit ' + escapeHtml(b.title) + '"><svg viewBox="0 0 20 20" fill="none"><path d="M13.5 3.5l3 3-9 9-3.6.6.6-3.6 9-9z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>' +
-            '<button class="icon-btn del-btn" data-id="' + b.id + '" aria-label="Remove ' + escapeHtml(b.title) + '"><svg viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8 6V4.5h4V6M6 6l.7 9.5A1 1 0 007.7 16.5h4.6a1 1 0 001-1L14 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+        '<article class="card" data-id="' + b.id + '" tabindex="0" role="button" aria-label="View ' + escapeHtml(b.title || "Untitled") + '" style="--spine:' + color + '; animation-delay:' + Math.min(i * 0.03, 0.4) + 's">' +
+          '<div class="card-cover">' +
+            '<div class="cover-fallback">' + BOOK_ICON_SVG + '</div>' +
+            (cover ? '<img class="cover-img" src="' + cover + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '') +
+            '<div class="card-tab mono">' + escapeHtml(b.isbn ? "ISBN " + b.isbn.slice(-6) : "NO ISBN") + "</div>" +
+            '<div class="card-actions">' +
+              '<button class="icon-btn edit-btn" data-id="' + b.id + '" aria-label="Edit ' + escapeHtml(b.title) + '"><svg viewBox="0 0 20 20" fill="none"><path d="M13.5 3.5l3 3-9 9-3.6.6.6-3.6 9-9z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>' +
+              '<button class="icon-btn del-btn" data-id="' + b.id + '" aria-label="Remove ' + escapeHtml(b.title) + '"><svg viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8 6V4.5h4V6M6 6l.7 9.5A1 1 0 007.7 16.5h4.6a1 1 0 001-1L14 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+            "</div>" +
           "</div>" +
-          "<h3>" + escapeHtml(b.title || "Untitled") + "</h3>" +
-          '<p class="author">' + escapeHtml(b.author || "Unknown author") + "</p>" +
-          '<div class="meta-row"><span class="genre-tag">' + escapeHtml(b.genre || "Uncategorized") + "</span></div>" +
+          '<div class="card-body">' +
+            "<h3>" + escapeHtml(b.title || "Untitled") + "</h3>" +
+            '<p class="author">' + escapeHtml(b.author || "Unknown author") + "</p>" +
+            '<div class="meta-row"><span class="genre-tag">' + escapeHtml(b.genre || "Uncategorized") + "</span></div>" +
+          "</div>" +
         "</article>"
       );
     }).join("");
 
     Array.prototype.forEach.call(grid.querySelectorAll(".edit-btn"), function (btn) {
-      btn.addEventListener("click", function () { openEditForm(btn.getAttribute("data-id")); });
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openEditForm(btn.getAttribute("data-id"));
+      });
     });
     Array.prototype.forEach.call(grid.querySelectorAll(".del-btn"), function (btn) {
-      btn.addEventListener("click", function () {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
         var b = books.find(function (x) { return x.id === btn.getAttribute("data-id"); });
         if (b && confirm('Remove "' + b.title + '" from the catalog?')) {
           deleteBookById(b.id);
           showToast("Removed from the shelf.");
         }
       });
+    });
+    Array.prototype.forEach.call(grid.querySelectorAll(".card"), function (card) {
+      card.addEventListener("click", function (e) {
+        if (e.target.closest(".icon-btn")) return;
+        renderBookInfoModal(card.getAttribute("data-id"));
+      });
+      card.addEventListener("keydown", function (e) {
+        if ((e.key === "Enter" || e.key === " ") && !e.target.closest(".icon-btn")) {
+          e.preventDefault();
+          renderBookInfoModal(card.getAttribute("data-id"));
+        }
+      });
+    });
+  }
+
+  /* ---------------- book info popup (click a card) ---------------- */
+  function renderBookInfoModal(id) {
+    var b = books.find(function (x) { return x.id === id; });
+    if (!b) return;
+    var color = spineColor(b.genre);
+    var cover = coverUrl(b.isbn);
+    var added = b.addedAt ? new Date(b.addedAt) : null;
+    var addedStr = (added && !isNaN(added.getTime())) ? added.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "";
+
+    openModal(
+      '<div class="view-book" style="--spine:' + color + '">' +
+        '<div class="view-cover">' +
+          '<div class="cover-fallback">' + BOOK_ICON_SVG + '</div>' +
+          (cover ? '<img class="cover-img" src="' + cover + '" alt="" onerror="this.style.display=\'none\'">' : '') +
+        "</div>" +
+        '<div class="view-info">' +
+          '<h2 id="modalTitle">' + escapeHtml(b.title || "Untitled") + "</h2>" +
+          '<p class="view-author">' + escapeHtml(b.author || "Unknown author") + "</p>" +
+          '<div class="view-meta-row">' +
+            '<span class="genre-tag">' + escapeHtml(b.genre || "Uncategorized") + "</span>" +
+            (b.isbn ? '<span class="mono view-isbn">ISBN ' + escapeHtml(b.isbn) + "</span>" : "") +
+          "</div>" +
+          (addedStr ? '<p class="view-added">Added ' + addedStr + "</p>" : "") +
+          '<div class="form-actions">' +
+            '<button type="button" class="btn btn-danger" id="viewDeleteBtn">Remove</button>' +
+            '<button type="button" class="btn btn-ghost" id="viewCloseBtn">Close</button>' +
+            '<button type="button" class="btn btn-primary" id="viewEditBtn">Edit</button>' +
+          "</div>" +
+        "</div>" +
+      "</div>"
+    );
+
+    document.getElementById("viewCloseBtn").addEventListener("click", closeModal);
+    document.getElementById("viewEditBtn").addEventListener("click", function () { openEditForm(b.id); });
+    document.getElementById("viewDeleteBtn").addEventListener("click", function () {
+      if (confirm('Remove "' + b.title + '" from the catalog?')) {
+        deleteBookById(b.id);
+        showToast("Removed from the shelf.");
+        closeModal();
+      }
     });
   }
 
