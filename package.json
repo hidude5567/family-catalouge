@@ -4,5 +4,8 @@
   "description": "Appwrite Function",
   "main": "src/main.js",
   "type": "module",
+  "scripts": {
+    "build": "echo 'No build step required'"
+  },
   "dependencies": {}
 }
