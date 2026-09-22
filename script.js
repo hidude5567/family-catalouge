@@ -2,8 +2,6 @@
   "use strict";
 
   /* ---------------- constants ---------------- */
-  var SUPABASE_URL = "https://iwnkpiwmjvjhibgckipp.supabase.co";
-  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3bmtwaXdtanZqaGliZ2NraXBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODk4MDgsImV4cCI6MjEwNTY2NTgwOH0.7Z2JzLpnYbEMAELTRcgFPek8de80I6zSnApluoeiXJ8";
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
 
@@ -32,12 +30,38 @@
     showToast._h = setTimeout(function () { t.classList.remove("show"); }, 2400);
   }
 
-  /* ---------------- state ---------------- */
+/* ---------------- state ---------------- */
   var books = [];               // local cache of book records
   var usingLocalFallback = false;
-  var db = null;
+  var db = null;                // supabase client (or legacy claude db)
   var currentEditId = null;     // set when editing an existing card
   var localKey = "catalog-books-local-v1";
+
+  /* ---------------- supabase config ----------------
+     Fill these in with your own project credentials.
+     In Supabase: Project Settings -> API -> Project URL & anon public key.
+     The anon key is safe to ship in client code — access is governed by
+     Row Level Security policies on the `books` table. */
+  var SUPABASE_URL = "https://iwnkpiwmjvjhibgckipp.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3bmtwaXdtanZqaGliZ2NraXBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODk4MDgsImV4cCI6MjEwNTY2NTgwOH0.7Z2JzLpnYbEMAELTRcgFPek8de80I6zSnApluoeiXJ8";
+  var SUPABASE_TABLE = "books";
+
+  function supabaseConfigured() {
+    return SUPABASE_URL.indexOf("YOUR-PROJECT") === -1 &&
+           SUPABASE_ANON_KEY.indexOf("YOUR-ANON") === -1 &&
+           !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
+  }
+
+  function loadSupabaseClient() {
+    if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+      s.onload = function () { resolve(window.supabase || null); };
+      s.onerror = function () { reject(new Error("supabase client failed to load")); };
+      document.head.appendChild(s);
+    });
+  }
 
   /* ---------------- persistence ---------------- */
   function loadLocalFallback() {
@@ -59,31 +83,78 @@
     books = books.filter(function (b) { return b.id !== id; });
   }
 
+  function setSyncNote(text) {
+    document.getElementById("syncNote").textContent = text;
+  }
+
+  function applyRemoteRows(rows) {
+    books = rows.map(function (r) {
+      return {
+        id: String(r.id),
+        title: r.title || "",
+        author: r.author || "",
+        genre: r.genre || "",
+        isbn: r.isbn || "",
+        addedAt: r.added_at || r.addedAt || new Date().toISOString()
+      };
+    });
+    renderAll();
+  }
+
   async function initStorage() {
+    // 1) Try Supabase if configured
+    if (supabaseConfigured()) {
+      try {
+        var supa = await loadSupabaseClient();
+        db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        var probe = await db.from(SUPABASE_TABLE).select("id", { count: "exact", head: true });
+        if (probe.error) throw probe.error;
+
+        setSyncNote("Your library, saved and synced to Supabase.");
+        var res = await db.from(SUPABASE_TABLE).select("*").order("added_at", { ascending: true });
+        if (res.error) throw res.error;
+        applyRemoteRows(res.data || []);
+
+        db.channel("catalog-books-changes")
+          .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE },
+            function () {
+              db.from(SUPABASE_TABLE).select("*").order("added_at", { ascending: true })
+                .then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
+            })
+          .subscribe();
+        return;
+      } catch (e) {
+        db = null;
+        usingLocalFallback = true;
+        setSyncNote("Couldn't reach Supabase — saving to this browser only. (" + (e && e.message ? e.message : "check your config") + ")");
+        loadLocalFallback();
+        return;
+      }
+    }
+
+    // 2) Legacy claude artifact db (kept for backwards compatibility)
     try {
       db = await window.claude.use("db");
     } catch (e) { db = null; }
 
-    if (!db) {
-      usingLocalFallback = true;
-      document.getElementById("syncNote").textContent = "Saved to this browser only — sync isn't available here.";
-      loadLocalFallback();
-      return;
+    if (db) {
+      setSyncNote("Your library, saved and synced through this page.");
+      try {
+        db.collection("books").onSnapshot(function (snapshot) {
+          books = (snapshot.docs || snapshot || []).map(function (d) {
+            return d.data ? Object.assign({ id: d.id }, d.data()) : d;
+          });
+          renderAll();
+        });
+        return;
+      } catch (e) { db = null; }
     }
 
-    document.getElementById("syncNote").textContent = "Your library, saved and synced through this page.";
-    try {
-      db.collection("books").onSnapshot(function (snapshot) {
-        books = (snapshot.docs || snapshot || []).map(function (d) {
-          return d.data ? Object.assign({ id: d.id }, d.data()) : d;
-        });
-        renderAll();
-      });
-    } catch (e) {
-      usingLocalFallback = true;
-      document.getElementById("syncNote").textContent = "Saved to this browser only — sync isn't available here.";
-      loadLocalFallback();
-    }
+    // 3) Local-only fallback
+    usingLocalFallback = true;
+    setSyncNote("Saved to this browser only — add your Supabase credentials in script.js to sync.");
+    loadLocalFallback();
   }
 
   async function persistBook(book) {
@@ -93,6 +164,27 @@
       renderAll();
       return;
     }
+    // Supabase path
+    if (db.from) {
+      var row = {
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        genre: book.genre || null,
+        isbn: book.isbn || null,
+        added_at: book.addedAt
+      };
+      var res = await db.from(SUPABASE_TABLE).upsert(row, { onConflict: "id" });
+      if (res.error) {
+        showToast("Couldn't save — try again.");
+        return;
+      }
+      upsertLocalBook(book);
+      saveLocalFallback();
+      renderAll();
+      return;
+    }
+    // Legacy claude db path
     try {
       await db.collection("books").doc(book.id).set(book);
     } catch (e) {
@@ -107,13 +199,25 @@
       renderAll();
       return;
     }
+    // Supabase path
+    if (db.from) {
+      var res = await db.from(SUPABASE_TABLE).delete().eq("id", id);
+      if (res.error) {
+        showToast("Couldn't remove — try again.");
+        return;
+      }
+      removeLocalBook(id);
+      saveLocalFallback();
+      renderAll();
+      return;
+    }
+    // Legacy claude db path
     try {
       await db.collection("books").doc(id).delete();
     } catch (e) {
       showToast("Couldn't remove — try again.");
     }
   }
-
 
   /* ---------------- rendering: grid ---------------- */
   function populateGenreFilter() {
