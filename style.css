@@ -181,22 +181,51 @@ select.genre-filter {
 .card {
   background: var(--paper-raised);
   border: 1px solid var(--paper-line);
-  border-left: 6px solid var(--spine, var(--forest));
-  border-radius: 2px;
-  padding: 1rem 1rem 0.9rem;
+  border-radius: 3px;
   position: relative;
   box-shadow: 0 2px 6px var(--shadow-soft);
   display: flex;
   flex-direction: column;
-  min-height: 148px;
   opacity: 0;
   transform: translateY(6px);
   animation: cardIn 0.4s ease forwards;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
+.card:hover, .card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 14px var(--shadow); }
 @media (prefers-reduced-motion: reduce) {
   .card { animation: none; opacity: 1; transform: none; }
+  .card:hover, .card:focus-visible { transform: none; }
 }
 @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+
+/* cover thumbnail */
+.card-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  border-bottom: 4px solid var(--spine, var(--forest));
+  background: var(--paper);
+  overflow: hidden;
+}
+.cover-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--spine, var(--forest));
+  background: color-mix(in srgb, var(--spine, var(--forest)) 14%, var(--paper-raised));
+}
+.cover-fallback svg { width: 34%; height: 34%; opacity: 0.85; }
+.cover-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .card-tab {
   position: absolute;
   top: -1px;
@@ -209,17 +238,22 @@ select.genre-filter {
   border-radius: 0 0 3px 3px;
   letter-spacing: 0.03em;
 }
+.card-body {
+  padding: 0.8rem 1rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
 .card h3 {
-  margin: 0.35rem 0 0.15rem;
-  font-size: 1.06rem;
+  margin: 0 0 0.15rem;
+  font-size: 0.98rem;
   line-height: 1.28;
   font-weight: 700;
-  padding-right: 3.2rem;
 }
 .card .author {
   margin: 0 0 0.6rem;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-style: italic;
 }
 .card .meta-row {
@@ -239,22 +273,49 @@ select.genre-filter {
   border-radius: 20px;
 }
 .card-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
   display: flex;
-  gap: 0.35rem;
+  gap: 0.25rem;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 .icon-btn {
-  background: transparent;
+  background: rgba(20, 17, 11, 0.55);
   border: none;
-  color: var(--ink-soft);
-  padding: 3px;
+  color: var(--paper-raised);
+  padding: 5px;
   line-height: 0;
   border-radius: 3px;
 }
-.icon-btn:hover { color: var(--ink); }
+.icon-btn:hover { background: rgba(20, 17, 11, 0.8); }
 .icon-btn svg { width: 15px; height: 15px; }
+
+/* ---------- book info popup ---------- */
+.view-book { display: flex; gap: 1.2rem; }
+.view-cover {
+  position: relative;
+  flex: none;
+  width: 140px;
+  aspect-ratio: 2 / 3;
+  border-radius: 3px;
+  border-bottom: 4px solid var(--spine, var(--forest));
+  overflow: hidden;
+  box-shadow: 0 4px 10px var(--shadow-soft);
+}
+.view-info { flex: 1; min-width: 0; padding-right: 1.4rem; }
+.view-info h2 { margin: 0 0 0.15rem; font-size: 1.3rem; padding-right: 0; }
+.view-author { margin: 0 0 0.8rem; color: var(--ink-soft); font-style: italic; }
+.view-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+.view-isbn { font-size: 0.78rem; color: var(--ink-soft); }
+.view-added { font-family: 'Courier Prime', monospace; font-size: 0.78rem; color: var(--ink-soft); margin: 0 0 1.2rem; }
+.view-book .form-actions { margin-top: 1rem; }
+@media (max-width: 520px) {
+  .view-book { flex-direction: column; }
+  .view-cover { width: 120px; }
+}
 
 .empty-state {
   grid-column: 1 / -1;
