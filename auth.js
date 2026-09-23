@@ -165,7 +165,7 @@
       var session = sessionRes && sessionRes.data && sessionRes.data.session;
       if (session && session.user) {
         setBootStatus("Already signed in — opening your shelf…");
-        window.location.href = "login.html";
+        window.location.href = "index.html";
         return;
       }
       setBootStatus("");
