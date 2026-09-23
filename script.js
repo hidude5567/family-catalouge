@@ -47,6 +47,16 @@
   var currentUser = null;       // { id, username } once logged in
   var booksChannel = null;      // realtime subscription, re-created per user
   var authMode = "login";       // "login" | "signup"
+  var lastAuthAttemptAt = 0;    // client-side spacing so we never burn the server's rate limit
+  var AUTH_ATTEMPT_GAP_MS = 12000;
+  function authThrottleNotice() {
+    var errEl = document.getElementById("authError");
+    errEl.textContent = "Easy — give it a few seconds between attempts. Supabase limits how fast you can try, and each try resets the timer.";
+    errEl.style.display = "block";
+  }
+  function authThrottleHit() {
+    return Date.now() - lastAuthAttemptAt < AUTH_ATTEMPT_GAP_MS;
+  }
 
   /* ---------------- accounts ----------------
      Supabase Auth wants an email, so a plain username is mapped to a
@@ -151,7 +161,15 @@
     if (!supabaseConfigured()) return false;
     try {
       var supa = await loadSupabaseClient();
-      db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      // Hard timeout on every request — a damaged/stuck auth service otherwise
+      // hangs forever, leaving buttons disabled with no feedback.
+      db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: {
+          fetch: function (url, options) {
+            return fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(15000) }));
+          }
+        }
+      });
       return true;
     } catch (e) {
       db = null;
@@ -908,10 +926,23 @@
       errEl.style.display = "none";
 
       if (!username || !password) return;
+      if (authThrottleHit()) { authThrottleNotice(); return; }
+      lastAuthAttemptAt = Date.now();
       if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
 
       submitBtn.disabled = true;
       statusEl.innerHTML = '<span class="spinner"></span> ' + (authMode === "login" ? "Logging in…" : "Creating your account…");
+
+      // If Supabase goes silent (stuck auth service), give up after 20s,
+      // re-enable the form, and say exactly what to do.
+      var wd = setTimeout(function () {
+        if (!authGateEl.hidden) {
+          submitBtn.disabled = false;
+          statusEl.textContent = "";
+          errEl.textContent = "Supabase never answered — its auth service is probably stuck. Restart the project (Dashboard → Settings → Infrastructure → Restart), wait a minute, then try again. Or use \"Skip for now\" meanwhile.";
+          errEl.style.display = "block";
+        }
+      }, 20000);
 
       var email = usernameToEmail(username);
       try {
@@ -943,8 +974,10 @@
           return;
         }
         // onAuthStateChange handles the rest (showing the app, loading books).
+        clearTimeout(wd);
         statusEl.textContent = "";
       } catch (err) {
+        clearTimeout(wd);
         submitBtn.disabled = false;
         statusEl.textContent = "";
         errEl.textContent = friendlyAuthError(err && err.message);
@@ -957,9 +990,19 @@
       var statusEl = document.getElementById("authStatus");
       var btn = this;
       errEl.style.display = "none";
+      if (authThrottleHit()) { authThrottleNotice(); return; }
+      lastAuthAttemptAt = Date.now();
       if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
       btn.disabled = true;
       statusEl.innerHTML = '<span class="spinner"></span> Redirecting to Google…';
+      var gwd = setTimeout(function () {
+        if (!authGateEl.hidden) {
+          btn.disabled = false;
+          statusEl.textContent = "";
+          errEl.textContent = "Supabase never answered — restart the project (Dashboard → Settings → Infrastructure → Restart) and try again.";
+          errEl.style.display = "block";
+        }
+      }, 20000);
       try {
         // Sends the browser to Google's consent screen; Supabase redirects
         // back here with the session, and onAuthStateChange opens the app.
@@ -969,8 +1012,10 @@
         });
         if (res.error) throw res.error;
         // If we get here, the popup/redirect didn't kick off — rare, but recover.
+        clearTimeout(gwd);
         statusEl.textContent = "";
       } catch (err) {
+        clearTimeout(gwd);
         btn.disabled = false;
         statusEl.textContent = "";
         errEl.textContent = friendlyAuthError(err && err.message);
