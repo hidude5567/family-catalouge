@@ -53,9 +53,17 @@
      stable pseudo-address under a fake domain. The password and RLS
      policies do the real work of keeping one account's shelf separate
      from another's. */
-  var AUTH_EMAIL_DOMAIN = "catalog.local";
+  /* Supabase validates that auth email domains are real and deliverable —
+     reserved/fake TLDs like .local are rejected at signup ("Email address
+     is invalid"). Using a major provider's domain passes validation. These
+     addresses never receive mail (no email features are used), they only
+     serve as stable account keys for username logins. */
+  var AUTH_EMAIL_DOMAIN = "gmail.com";
   function usernameToEmail(username) {
-    return String(username).trim().toLowerCase().replace(/\s+/g, "") + "@" + AUTH_EMAIL_DOMAIN;
+    // If someone pastes/typing a full email address, keep only the mailbox
+    // part — the @domain gets replaced with our pseudo-domain anyway.
+    var local = String(username).trim().toLowerCase().split("@")[0];
+    return local.replace(/\s+/g, "") + "@" + AUTH_EMAIL_DOMAIN;
   }
   function emailToUsername(email, metaUsername) {
     if (metaUsername) return metaUsername;
@@ -63,9 +71,10 @@
   }
   function friendlyAuthError(msg) {
     msg = String(msg || "");
-    if (/schema/i.test(msg)) return "The books table isn't set up in Supabase yet — run the setup SQL (see notes), then reload.";
+    if (/schema/i.test(msg)) return "Supabase's auth service is failing (this is not your books table). In your Supabase dashboard: Settings → Infrastructure → Restart project, wait a minute, then reload this page. If it keeps happening, open Logs → Auth to see the real database error — it's usually a broken trigger on auth.users.";
     if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
     if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
+    if (/invalid.*(email|format)/i.test(msg)) return "That username didn't translate into a valid account address — try a simpler username (letters and numbers only).";
     if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
     if (/rate limit/i.test(msg)) return "Too many attempts — wait a moment and try again.";
     return msg || "Something went wrong — try again.";
@@ -907,14 +916,23 @@
       var email = usernameToEmail(username);
       try {
         var result;
-        if (authMode === "login") {
-          result = await db.auth.signInWithPassword({ email: email, password: password });
-        } else {
-          result = await db.auth.signUp({
+        async function attempt() {
+          if (authMode === "login") {
+            return db.auth.signInWithPassword({ email: email, password: password });
+          }
+          return db.auth.signUp({
             email: email,
             password: password,
             options: { data: { username: username } }
           });
+        }
+        result = await attempt();
+        // "Database error querying schema" from the auth service is often a
+        // stale GoTrue schema cache — one retry after a short wait clears it.
+        if (result.error && /schema/i.test(result.error.message || "")) {
+          statusEl.innerHTML = '<span class="spinner"></span> Retrying — Supabase was slow to respond…';
+          await new Promise(function (r) { setTimeout(r, 2500); });
+          result = await attempt();
         }
         if (result.error) throw result.error;
 
@@ -958,6 +976,17 @@
         errEl.textContent = friendlyAuthError(err && err.message);
         errEl.style.display = "block";
       }
+    });
+
+    // Lets people use the app while the Supabase project is being fixed —
+    // same local-only mode the app falls back to when no project is set up.
+    document.getElementById("skipAuthBtn").addEventListener("click", function () {
+      currentUser = null;
+      authGateEl.hidden = true;
+      appShellEl.hidden = false;
+      logoutBtn.hidden = true;
+      initLocalOnlyMode();
+      renderAll();
     });
 
     logoutBtn.addEventListener("click", async function () {
