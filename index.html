@@ -12,16 +12,47 @@
 </head>
 <body>
 <!--recach-->
-<div class="page">
+
+<!-- ============ AUTH GATE ============ -->
+<div class="auth-shell" id="authGate" hidden>
+  <div class="auth-card">
+    <h1 class="masthead-title auth-title">The Catalog</h1>
+    <p class="masthead-sub auth-sub">a running record of what's on the shelf</p>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" class="auth-tab active" id="tabLogin" role="tab" aria-selected="true">Log in</button>
+      <button type="button" class="auth-tab" id="tabSignup" role="tab" aria-selected="false">Sign up</button>
+    </div>
+    <form id="authForm">
+      <div class="field">
+        <label for="authUser">Username</label>
+        <input id="authUser" type="text" autocomplete="username" required autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="authPass">Password</label>
+        <input id="authPass" type="password" autocomplete="current-password" required minlength="6">
+      </div>
+      <div class="field-error" id="authError" style="display:none;"></div>
+      <button type="submit" class="btn btn-primary" id="authSubmit">Log in</button>
+    </form>
+    <p class="status-line" id="authStatus"></p>
+    <p class="auth-footnote" id="authFootnote">Each account keeps its own shelf — nobody sees anyone else's books.</p>
+  </div>
+</div>
+
+<div class="page" id="appShell" hidden>
   <header class="masthead">
     <div>
       <h1 class="masthead-title">The Catalog</h1>
       <p class="masthead-sub">a running record of what's on the shelf</p>
     </div>
-    <button class="new-book-btn" id="openCreate">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <span class="label">New book</span>
-    </button>
+    <div class="header-actions">
+      <span class="mono whoami" id="whoami"></span>
+      <button class="btn btn-ghost" id="logoutBtn" hidden>Log out</button>
+      <button class="new-book-btn" id="openCreate">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="label">New book</span>
+      </button>
+    </div>
   </header>
 
   <div class="search-row">
