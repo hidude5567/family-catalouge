@@ -63,6 +63,7 @@
   }
   function friendlyAuthError(msg) {
     msg = String(msg || "");
+    if (/schema/i.test(msg)) return "The books table isn't set up in Supabase yet — run the setup SQL (see notes), then reload.";
     if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
     if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
     if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
@@ -149,27 +150,107 @@
     }
   }
 
+  /* Translates raw PostgREST/Supabase errors into the exact fix, and
+     logs runnable SQL to the console when the database needs attention. */
+  function diagnoseDbError(e) {
+    var msg = (e && (e.message || e.hint || e.details)) || String(e || "");
+    var code = e && e.code ? String(e.code) : "";
+    var sql =
+      "-- The Catalog: full setup (safe to re-run)\n" +
+      "create table if not exists public.books (\n" +
+      "  id text primary key,\n" +
+      "  title text not null,\n" +
+      "  author text not null,\n" +
+      "  genre text,\n" +
+      "  isbn text,\n" +
+      "  added_at timestamptz not null default now(),\n" +
+      "  user_id uuid not null references auth.users(id) on delete cascade\n" +
+      ");\n" +
+      "alter table public.books enable row level security;\n" +
+      "create policy if not exists \"select own books\" on public.books for select using (auth.uid() = user_id);\n" +
+      "create policy if not exists \"insert own books\" on public.books for insert with check (auth.uid() = user_id);\n" +
+      "create policy if not exists \"update own books\" on public.books for update using (auth.uid() = user_id);\n" +
+      "create policy if not exists \"delete own books\" on public.books for delete using (auth.uid() = user_id);\n" +
+      "grant usage on schema public to anon, authenticated;\n" +
+      "grant select, insert, update, delete on public.books to anon, authenticated;\n" +
+      "alter publication supabase_realtime add table public.books;\n" +
+      "notify pgrst, 'reload schema';";
+
+    if (/schema|pgrst/i.test(msg) || /schema|pgrst/i.test(code)) {
+      // "Database error querying schema" = PostgREST's schema cache is stale
+      // (happens right after creating/altering a table) or it can't see the
+      // table at all. Fix: reload the cache in the SQL editor.
+      return {
+        note: "Supabase's schema cache is stale — run \u201cnotify pgrst, 'reload schema';\u201d in the SQL editor, then reload this page.",
+        consoleMsg: "The Catalog: PostgREST schema cache error. Run this in Supabase SQL editor:\n\n" + sql
+      };
+    }
+    if (/42P01|does not exist/i.test(msg) || code === "42P01") {
+      return {
+        note: "The 'books' table wasn't found. Run the setup SQL (printed in the browser console), then reload.",
+        consoleMsg: "The Catalog: table 'books' missing. Run this in Supabase SQL editor:\n\n" + sql
+      };
+    }
+    if (/42703|column .* does not exist/i.test(msg) || code === "42703") {
+      return {
+        note: "The 'books' table is missing a column the app needs (id, title, author, genre, isbn, added_at, user_id). Full setup SQL is in the browser console.",
+        consoleMsg: "The Catalog: column mismatch on 'books'. Run this in Supabase SQL editor:\n\n" + sql
+      };
+    }
+    if (/42501|permission denied|row-level security/i.test(msg) || code === "42501") {
+      return {
+        note: "The database is refusing access (grants/RLS). Fix SQL is printed in the browser console.",
+        consoleMsg: "The Catalog: permission denied on 'books'. Run this in Supabase SQL editor:\n\n" + sql
+      };
+    }
+    return {
+      note: "Couldn't reach Supabase — saving to this browser only. (" + msg + ")",
+      consoleMsg: "The Catalog: unexpected database error: " + msg + "\nFull setup SQL:\n\n" + sql
+    };
+  }
+
   /* Fetches and subscribes to just the logged-in user's own books. */
   async function loadBooksForUser(userId) {
     if (booksChannel) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
-    try {
-      setSyncNote("Your library, saved and synced to Supabase.");
-      var res = await db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
-      if (res.error) throw res.error;
-      applyRemoteRows(res.data || []);
 
-      booksChannel = db.channel("catalog-books-changes-" + userId)
-        .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "user_id=eq." + userId },
-          function () {
-            db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true })
-              .then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
-          })
-        .subscribe();
-    } catch (e) {
-      usingLocalFallback = true;
-      setSyncNote("Couldn't reach Supabase — saving to this browser only. (" + (e && e.message ? e.message : "check your config") + ")");
-      loadLocalFallback();
+    async function fetchBooks() {
+      return db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
     }
+
+    setSyncNote("Your library, saved and synced to Supabase.");
+    var res = await fetchBooks();
+
+    // Schema-cache errors right after creating the table are transient —
+    // wait two seconds and try once more before giving up.
+    if (res.error && /schema/i.test(res.error.message || "")) {
+      await new Promise(function (r) { setTimeout(r, 2000); });
+      res = await fetchBooks();
+    }
+
+    if (res.error) {
+      var d = diagnoseDbError(res.error);
+      console.warn(d.consoleMsg);
+      usingLocalFallback = true;
+      setSyncNote(d.note + " (saving to this browser until then)");
+      loadLocalFallback();
+      return;
+    }
+
+    applyRemoteRows(res.data || []);
+
+    booksChannel = db.channel("catalog-books-changes-" + userId)
+      .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "user_id=eq." + userId },
+        function () {
+          fetchBooks().then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
+        })
+      .subscribe(function (status, err) {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // Almost always means the table isn't in the supabase_realtime
+          // publication. Data still saves fine — live updates just won't
+          // push; the app refetches after every local write instead.
+          console.warn("The Catalog: realtime subscription failed (books table likely not in the supabase_realtime publication). Run in SQL editor:\n\nalter publication supabase_realtime add table public.books;");
+        }
+      });
   }
 
   /* Local-only, single-browser mode — used when Supabase isn't
@@ -847,6 +928,32 @@
         statusEl.textContent = "";
       } catch (err) {
         submitBtn.disabled = false;
+        statusEl.textContent = "";
+        errEl.textContent = friendlyAuthError(err && err.message);
+        errEl.style.display = "block";
+      }
+    });
+
+    document.getElementById("googleBtn").addEventListener("click", async function () {
+      var errEl = document.getElementById("authError");
+      var statusEl = document.getElementById("authStatus");
+      var btn = this;
+      errEl.style.display = "none";
+      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
+      btn.disabled = true;
+      statusEl.innerHTML = '<span class="spinner"></span> Redirecting to Google…';
+      try {
+        // Sends the browser to Google's consent screen; Supabase redirects
+        // back here with the session, and onAuthStateChange opens the app.
+        var res = await db.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: window.location.origin + window.location.pathname }
+        });
+        if (res.error) throw res.error;
+        // If we get here, the popup/redirect didn't kick off — rare, but recover.
+        statusEl.textContent = "";
+      } catch (err) {
+        btn.disabled = false;
         statusEl.textContent = "";
         errEl.textContent = friendlyAuthError(err && err.message);
         errEl.style.display = "block";
