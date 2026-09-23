@@ -8,11 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-
-<base target="_blank">
 </head>
 <body>
 <!--recach-->
+
+<!-- Shows uncaught JS errors right on the page — for devices/browsers
+     where opening devtools isn't practical. Tap it to dismiss. -->
+<div id="jsErrorBanner" hidden></div>
 
 <!-- ============ AUTH GATE ============ -->
 <div class="auth-shell" id="authGate" hidden>
@@ -88,6 +90,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="script.js"></script>
+<script src="script.js?v=4"></script>
 </body>
 </html>
