@@ -537,3 +537,73 @@ select.genre-filter {
   .masthead-title { font-size: 1.6rem; }
   .new-book-btn span.label { display: none; }
 }
+
+/* ---------- header actions (logged-in state) ---------- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.whoami {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+@media (max-width: 480px) {
+  .whoami { display: none; }
+}
+
+/* ---------- auth gate ---------- */
+.auth-shell {
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--paper);
+  background-image: linear-gradient(var(--paper-line) 1px, transparent 1px);
+  background-size: 100% 2.1em;
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+  border-radius: 6px;
+  box-shadow: 0 20px 50px var(--shadow);
+  padding: 2rem 1.8rem 1.8rem;
+  text-align: center;
+}
+.auth-title { font-size: 1.7rem; }
+.auth-sub { margin-bottom: 1.6rem; }
+.auth-tabs {
+  display: flex;
+  border: 1px solid var(--paper-line);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+.auth-tab {
+  flex: 1;
+  background: var(--paper);
+  border: none;
+  color: var(--ink-soft);
+  padding: 0.6rem 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-right: 1px solid var(--paper-line);
+}
+.auth-tab:last-child { border-right: none; }
+.auth-tab.active {
+  background: var(--forest);
+  color: var(--paper-raised);
+}
+#authForm { text-align: left; }
+#authForm .btn { width: 100%; margin-top: 0.2rem; }
+.auth-footnote {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  margin: 1.1rem 0 0;
+}
+.auth-card .status-line { justify-content: center; }
