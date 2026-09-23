@@ -136,7 +136,7 @@
 
         if (result.data && result.data.session) {
           setBootStatus("Signed in — opening your shelf…");
-          window.location.href = "login.html";
+          window.location.href = "index.html";
           return;
         }
         setBootStatus("");
@@ -151,7 +151,7 @@
 
     document.getElementById("skipAuthBtn").addEventListener("click", function () {
       try { sessionStorage.setItem("catalogLocalOnly", "1"); } catch (e) {}
-      window.location.href = "login.html";
+      window.location.href = "index.html";
     });
   }
 
