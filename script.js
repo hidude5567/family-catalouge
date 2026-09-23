@@ -84,6 +84,7 @@
     if (/schema/i.test(msg)) return "Supabase's auth service is failing (this is not your books table). In your Supabase dashboard: Settings → Infrastructure → Restart project, wait a minute, then reload this page. If it keeps happening, open Logs → Auth to see the real database error — it's usually a broken trigger on auth.users.";
     if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
     if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
+    if (/email not confirmed|not.*confirmed/i.test(msg)) return "This project has email confirmation turned ON, so the account is locked. Fix: Supabase Dashboard → Authentication → Settings → switch \"Confirm email\" OFF, then log in again.";
     if (/invalid.*(email|format)/i.test(msg)) return "That username didn't translate into a valid account address — try a simpler username (letters and numbers only).";
     if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
     if (/rate limit/i.test(msg)) return "Too many attempts — wait a moment and try again.";
@@ -973,9 +974,18 @@
           submitBtn.disabled = false;
           return;
         }
-        // onAuthStateChange handles the rest (showing the app, loading books).
+        // NOTE: we deliberately do NOT rely on onAuthStateChange to open the
+        // app. In some environments (restricted storage, managed browsers,
+        // old webviews) that event never fires even though the server
+        // confirms the sign-in — the user ends up stuck on the login screen
+        // with a disabled button while the auth logs show success. If the
+        // response carries a session, open the app directly, right now.
         clearTimeout(wd);
         statusEl.textContent = "";
+        submitBtn.disabled = false;
+        if (result.data && result.data.session && result.data.session.user) {
+          showApp(result.data.session.user);
+        }
       } catch (err) {
         clearTimeout(wd);
         submitBtn.disabled = false;
@@ -1098,6 +1108,21 @@
     } catch (e) {
       showAuthGate();
     }
+
+    // Safety net: poll the stored session for the first 30 seconds after
+    // load. Covers the case where a sign-in completes but every event
+    // channel to this page is dropped — the gate would otherwise sit
+    // there forever despite a valid session.
+    var sessionPolls = 0;
+    var sessionPoll = setInterval(async function () {
+      sessionPolls++;
+      if (sessionPolls > 10 || !authGateEl.hidden) { clearInterval(sessionPoll); return; }
+      try {
+        var r = await db.auth.getSession();
+        var s = r && r.data && r.data.session;
+        if (s && s.user) { clearInterval(sessionPoll); showApp(s.user); }
+      } catch (e) { /* keep polling until the window ends */ }
+    }, 3000);
   }
   boot();
 })();
