@@ -1,6 +1,29 @@
 (function () {
   "use strict";
 
+  /* ---------------- on-page error banner ----------------
+     Surfaces any uncaught error or rejected promise directly on the page.
+     Devtools aren't always available (mobile browsers, locked-down
+     machines), so this is the fallback way to see what broke. Tap the
+     banner to dismiss it. */
+  (function setupErrorBanner() {
+    var banner = document.getElementById("jsErrorBanner");
+    if (!banner) return;
+    function show(msg) {
+      banner.textContent = String(msg || "Unknown error") + "  (tap to dismiss)";
+      banner.hidden = false;
+    }
+    banner.addEventListener("click", function () { banner.hidden = true; });
+    window.addEventListener("error", function (e) {
+      show((e && e.message) || "Script error");
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      var r = e && e.reason;
+      var msg = (r && (r.message || r.error_description || r.msg)) || String(r);
+      show(msg);
+    });
+  })();
+
   /* ---------------- constants ---------------- */
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
