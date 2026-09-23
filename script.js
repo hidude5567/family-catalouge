@@ -2,7 +2,7 @@
   "use strict";
 
   /* ---------------- constants ---------------- */
-  var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Manga","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller","Realistic Fiction","Humor","Animal Fiction"];
+  var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
   var BOOK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M4 4.5c2.2-.9 5-1 8 .3V19c-3-1.3-5.8-1.2-8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 4.5c-2.2-.9-5-1-8 .3V19c3-1.3 5.8-1.2 8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 
@@ -44,6 +44,31 @@
   var db = null;                // supabase client (or legacy claude db)
   var currentEditId = null;     // set when editing an existing card
   var localKey = "catalog-books-local-v1";
+  var currentUser = null;       // { id, username } once logged in
+  var booksChannel = null;      // realtime subscription, re-created per user
+  var authMode = "login";       // "login" | "signup"
+
+  /* ---------------- accounts ----------------
+     Supabase Auth wants an email, so a plain username is mapped to a
+     stable pseudo-address under a fake domain. The password and RLS
+     policies do the real work of keeping one account's shelf separate
+     from another's. */
+  var AUTH_EMAIL_DOMAIN = "catalog.local";
+  function usernameToEmail(username) {
+    return String(username).trim().toLowerCase().replace(/\s+/g, "") + "@" + AUTH_EMAIL_DOMAIN;
+  }
+  function emailToUsername(email, metaUsername) {
+    if (metaUsername) return metaUsername;
+    return String(email || "").split("@")[0];
+  }
+  function friendlyAuthError(msg) {
+    msg = String(msg || "");
+    if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
+    if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
+    if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
+    if (/rate limit/i.test(msg)) return "Too many attempts — wait a moment and try again.";
+    return msg || "Something went wrong — try again.";
+  }
 
   /* ---------------- supabase config ----------------
      Fill these in with your own project credentials.
@@ -109,59 +134,49 @@
     renderAll();
   }
 
-  async function initStorage() {
-    // 1) Try Supabase if configured
-    if (supabaseConfigured()) {
-      try {
-        var supa = await loadSupabaseClient();
-        db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        var probe = await db.from(SUPABASE_TABLE).select("id", { count: "exact", head: true });
-        if (probe.error) throw probe.error;
-
-        setSyncNote("Your library, saved and synced to Supabase.");
-        var res = await db.from(SUPABASE_TABLE).select("*").order("added_at", { ascending: true });
-        if (res.error) throw res.error;
-        applyRemoteRows(res.data || []);
-
-        db.channel("catalog-books-changes")
-          .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE },
-            function () {
-              db.from(SUPABASE_TABLE).select("*").order("added_at", { ascending: true })
-                .then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
-            })
-          .subscribe();
-        return;
-      } catch (e) {
-        db = null;
-        usingLocalFallback = true;
-        setSyncNote("Couldn't reach Supabase — saving to this browser only. (" + (e && e.message ? e.message : "check your config") + ")");
-        loadLocalFallback();
-        return;
-      }
-    }
-
-    // 2) Legacy claude artifact db (kept for backwards compatibility)
+  /* Sets up the Supabase client only (no data fetched yet — that
+     happens once someone is logged in, in loadBooksForUser). Returns
+     true if a usable client was created. */
+  async function connectSupabase() {
+    if (!supabaseConfigured()) return false;
     try {
-      db = await window.claude.use("db");
-    } catch (e) { db = null; }
-
-    if (db) {
-      setSyncNote("Your library, saved and synced through this page.");
-      try {
-        db.collection("books").onSnapshot(function (snapshot) {
-          books = (snapshot.docs || snapshot || []).map(function (d) {
-            return d.data ? Object.assign({ id: d.id }, d.data()) : d;
-          });
-          renderAll();
-        });
-        return;
-      } catch (e) { db = null; }
+      var supa = await loadSupabaseClient();
+      db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      return true;
+    } catch (e) {
+      db = null;
+      return false;
     }
+  }
 
-    // 3) Local-only fallback
+  /* Fetches and subscribes to just the logged-in user's own books. */
+  async function loadBooksForUser(userId) {
+    if (booksChannel) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
+    try {
+      setSyncNote("Your library, saved and synced to Supabase.");
+      var res = await db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
+      if (res.error) throw res.error;
+      applyRemoteRows(res.data || []);
+
+      booksChannel = db.channel("catalog-books-changes-" + userId)
+        .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "user_id=eq." + userId },
+          function () {
+            db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true })
+              .then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
+          })
+        .subscribe();
+    } catch (e) {
+      usingLocalFallback = true;
+      setSyncNote("Couldn't reach Supabase — saving to this browser only. (" + (e && e.message ? e.message : "check your config") + ")");
+      loadLocalFallback();
+    }
+  }
+
+  /* Local-only, single-browser mode — used when Supabase isn't
+     configured at all, so there's no account system to gate behind. */
+  function initLocalOnlyMode() {
     usingLocalFallback = true;
-    setSyncNote("Saved to this browser only — add your Supabase credentials in script.js to sync.");
+    setSyncNote("Saved to this browser only — add your Supabase credentials in script.js to enable accounts and syncing.");
     loadLocalFallback();
   }
 
@@ -180,7 +195,8 @@
         author: book.author,
         genre: book.genre || null,
         isbn: book.isbn || null,
-        added_at: book.addedAt
+        added_at: book.addedAt,
+        user_id: currentUser ? currentUser.id : null
       };
       var res = await db.from(SUPABASE_TABLE).upsert(row, { onConflict: "id" });
       if (res.error) {
@@ -209,7 +225,9 @@
     }
     // Supabase path
     if (db.from) {
-      var res = await db.from(SUPABASE_TABLE).delete().eq("id", id);
+      var delQuery = db.from(SUPABASE_TABLE).delete().eq("id", id);
+      if (currentUser) delQuery = delQuery.eq("user_id", currentUser.id);
+      var res = await delQuery;
       if (res.error) {
         showToast("Couldn't remove — try again.");
         return;
@@ -768,7 +786,137 @@
     origStopScanner();
   };
 
+  /* ---------------- auth gate ---------------- */
+  var authGateEl = document.getElementById("authGate");
+  var appShellEl = document.getElementById("appShell");
+  var whoamiEl = document.getElementById("whoami");
+  var logoutBtn = document.getElementById("logoutBtn");
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    document.getElementById("tabLogin").classList.toggle("active", mode === "login");
+    document.getElementById("tabLogin").setAttribute("aria-selected", mode === "login");
+    document.getElementById("tabSignup").classList.toggle("active", mode === "signup");
+    document.getElementById("tabSignup").setAttribute("aria-selected", mode === "signup");
+    document.getElementById("authSubmit").textContent = mode === "login" ? "Log in" : "Create account";
+    document.getElementById("authPass").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
+    document.getElementById("authError").style.display = "none";
+    document.getElementById("authStatus").textContent = "";
+  }
+
+  function wireAuthForm() {
+    document.getElementById("tabLogin").addEventListener("click", function () { setAuthMode("login"); });
+    document.getElementById("tabSignup").addEventListener("click", function () { setAuthMode("signup"); });
+
+    document.getElementById("authForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var username = document.getElementById("authUser").value.trim();
+      var password = document.getElementById("authPass").value;
+      var errEl = document.getElementById("authError");
+      var statusEl = document.getElementById("authStatus");
+      var submitBtn = document.getElementById("authSubmit");
+      errEl.style.display = "none";
+
+      if (!username || !password) return;
+      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
+
+      submitBtn.disabled = true;
+      statusEl.innerHTML = '<span class="spinner"></span> ' + (authMode === "login" ? "Logging in…" : "Creating your account…");
+
+      var email = usernameToEmail(username);
+      try {
+        var result;
+        if (authMode === "login") {
+          result = await db.auth.signInWithPassword({ email: email, password: password });
+        } else {
+          result = await db.auth.signUp({
+            email: email,
+            password: password,
+            options: { data: { username: username } }
+          });
+        }
+        if (result.error) throw result.error;
+
+        if (authMode === "signup" && !(result.data && result.data.session)) {
+          // Email confirmation is turned on in the Supabase project — no session yet.
+          statusEl.textContent = "Account created — check that this project allows sign-in without email confirmation, then log in.";
+          submitBtn.disabled = false;
+          return;
+        }
+        // onAuthStateChange handles the rest (showing the app, loading books).
+        statusEl.textContent = "";
+      } catch (err) {
+        submitBtn.disabled = false;
+        statusEl.textContent = "";
+        errEl.textContent = friendlyAuthError(err && err.message);
+        errEl.style.display = "block";
+      }
+    });
+
+    logoutBtn.addEventListener("click", async function () {
+      if (db && db.auth) { try { await db.auth.signOut(); } catch (e) {} }
+    });
+  }
+
+  function showAuthGate() {
+    authGateEl.hidden = false;
+    appShellEl.hidden = true;
+    logoutBtn.hidden = true;
+    whoamiEl.textContent = "";
+    document.getElementById("authForm").reset();
+    document.getElementById("authSubmit").disabled = false;
+    document.getElementById("authStatus").textContent = "";
+    setAuthMode("login");
+    document.getElementById("authUser").focus();
+  }
+
+  function showApp(user) {
+    currentUser = { id: user.id, username: emailToUsername(user.email, user.user_metadata && user.user_metadata.username) };
+    authGateEl.hidden = true;
+    appShellEl.hidden = false;
+    logoutBtn.hidden = false;
+    whoamiEl.textContent = currentUser.username;
+    usingLocalFallback = false;
+    books = [];
+    renderAll();
+    loadBooksForUser(currentUser.id);
+  }
+
+  function handleLoggedOut() {
+    if (booksChannel && db) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
+    currentUser = null;
+    books = [];
+    showAuthGate();
+  }
+
   /* ---------------- boot ---------------- */
-  initStorage();
-  renderAll();
+  async function boot() {
+    var connected = await connectSupabase();
+    if (!connected) {
+      // No Supabase project configured — fall back to a single
+      // unauthenticated, browser-local shelf (no accounts possible).
+      authGateEl.hidden = true;
+      appShellEl.hidden = false;
+      logoutBtn.hidden = true;
+      initLocalOnlyMode();
+      renderAll();
+      return;
+    }
+
+    wireAuthForm();
+    db.auth.onAuthStateChange(function (_event, session) {
+      if (session && session.user) showApp(session.user);
+      else handleLoggedOut();
+    });
+
+    try {
+      var sessionRes = await db.auth.getSession();
+      var session = sessionRes && sessionRes.data && sessionRes.data.session;
+      if (session && session.user) showApp(session.user);
+      else showAuthGate();
+    } catch (e) {
+      showAuthGate();
+    }
+  }
+  boot();
 })();
