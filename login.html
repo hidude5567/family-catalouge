@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in — The Catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Always-visible diagnostic line. Unlike an error banner, this shows up
+     even when nothing has technically "errored" yet — e.g. while a script
+     is still stuck loading from a CDN. If this text is still saying
+     "Connecting…" after several seconds, that's the problem, right there,
+     with no devtools required. -->
+<div id="bootStatus" class="boot-status" hidden></div>
+
+<div class="auth-shell" id="authGate">
+  <div class="auth-card">
+    <h1 class="masthead-title auth-title">The Catalog</h1>
+    <p class="masthead-sub auth-sub">a running record of what's on the shelf</p>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" class="auth-tab active" id="tabLogin" role="tab" aria-selected="true">Log in</button>
+      <button type="button" class="auth-tab" id="tabSignup" role="tab" aria-selected="false">Sign up</button>
+    </div>
+    <form id="authForm">
+      <div class="field">
+        <label for="authUser">Username</label>
+        <input id="authUser" type="text" autocomplete="username" required autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="authPass">Password</label>
+        <input id="authPass" type="password" autocomplete="current-password" required minlength="6">
+      </div>
+      <div class="field-error" id="authError" style="display:none;"></div>
+      <button type="submit" class="btn btn-primary" id="authSubmit" disabled>Log in</button>
+    </form>
+    <p class="status-line" id="authStatus"></p>
+    <p class="auth-footnote" id="authFootnote">Each account keeps its own shelf — nobody sees anyone else's books.</p>
+    <button type="button" class="auth-skip" id="skipAuthBtn">Skip for now — use this browser only</button>
+  </div>
+</div>
+
+<script src="auth.js?v=1"></script>
+</body>
+</html>
