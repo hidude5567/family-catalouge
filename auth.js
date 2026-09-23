@@ -136,7 +136,7 @@
 
         if (result.data && result.data.session) {
           setBootStatus("Signed in — opening your shelf…");
-          window.location.href = "index.html";
+          window.location.href = "login.html";
           return;
         }
         setBootStatus("");
@@ -151,7 +151,7 @@
 
     document.getElementById("skipAuthBtn").addEventListener("click", function () {
       try { sessionStorage.setItem("catalogLocalOnly", "1"); } catch (e) {}
-      window.location.href = "index.html";
+      window.location.href = "login.html";
     });
   }
 
@@ -165,7 +165,7 @@
       var session = sessionRes && sessionRes.data && sessionRes.data.session;
       if (session && session.user) {
         setBootStatus("Already signed in — opening your shelf…");
-        window.location.href = "index.html";
+        window.location.href = "login.html";
         return;
       }
       setBootStatus("");
