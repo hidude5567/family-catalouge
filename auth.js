@@ -156,7 +156,7 @@
   }
 
   wireForm();
-
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   (async function boot() {
     try {
       await connectSupabase();
@@ -165,6 +165,7 @@
       var session = sessionRes && sessionRes.data && sessionRes.data.session;
       if (session && session.user) {
         setBootStatus("Already signed in — opening your shelf…");
+        await wait(2000);
         window.location.href = "index.html";
         return;
       }
