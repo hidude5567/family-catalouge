@@ -634,3 +634,15 @@ select.genre-filter {
 }
 .btn-google:hover { border-color: var(--ink-soft); }
 .btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.auth-skip {
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.74rem;
+  margin-top: 0.9rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-skip:hover { color: var(--ink); }
