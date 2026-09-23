@@ -95,8 +95,8 @@
      In Supabase: Project Settings -> API -> Project URL & anon public key.
      The anon key is safe to ship in client code — access is governed by
      Row Level Security policies on the `books` table. */
-  var SUPABASE_URL = "https://iwnkpiwmjvjhibgckipp.supabase.co";
-  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3bmtwaXdtanZqaGliZ2NraXBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODk4MDgsImV4cCI6MjEwNTY2NTgwOH0.7Z2JzLpnYbEMAELTRcgFPek8de80I6zSnApluoeiXJ8";
+  var SUPABASE_URL = "https://wgyrpvrzafubezcxqrzy.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXJwdnJ6YWZ1YmV6Y3hxcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxODI2NjYsImV4cCI6MjEwNTc1ODY2Nn0.rGn52ohlPcbKKoiRU3vsd1IrPeE5id6eriDD_JR8jco";
   var SUPABASE_TABLE = "books";
 
   function supabaseConfigured() {
