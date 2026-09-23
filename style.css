@@ -607,3 +607,30 @@ select.genre-filter {
   margin: 1.1rem 0 0;
 }
 .auth-card .status-line { justify-content: center; }
+/* ---------- Google sign-in ---------- */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 1.1rem 0;
+  color: var(--ink-soft);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.72rem;
+}
+.auth-divider::before, .auth-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--paper-line);
+}
+.btn-google {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--paper-line);
+}
+.btn-google:hover { border-color: var(--ink-soft); }
+.btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
