@@ -1,28 +1,27 @@
 (function () {
   "use strict";
 
-  /* ---------------- on-page error banner ----------------
-     Surfaces any uncaught error or rejected promise directly on the page.
-     Devtools aren't always available (mobile browsers, locked-down
-     machines), so this is the fallback way to see what broke. Tap the
-     banner to dismiss it. */
-  (function setupErrorBanner() {
-    var banner = document.getElementById("jsErrorBanner");
-    if (!banner) return;
-    function show(msg) {
-      banner.textContent = String(msg || "Unknown error") + "  (tap to dismiss)";
-      banner.hidden = false;
-    }
-    banner.addEventListener("click", function () { banner.hidden = true; });
-    window.addEventListener("error", function (e) {
-      show((e && e.message) || "Script error");
-    });
-    window.addEventListener("unhandledrejection", function (e) {
-      var r = e && e.reason;
-      var msg = (r && (r.message || r.error_description || r.msg)) || String(r);
-      show(msg);
-    });
-  })();
+  /* ---------------- on-page status / error banner ----------------
+     Same diagnostic approach as auth.js: a persistent status line that
+     shows *while* something is loading (not just when it errors), so a
+     silent hang is visible instead of indistinguishable from "nothing
+     happening." */
+  var bootStatusEl = document.getElementById("bootStatus");
+  function setBootStatus(text, isError) {
+    if (!bootStatusEl) return;
+    if (!text) { bootStatusEl.hidden = true; return; }
+    bootStatusEl.hidden = false;
+    bootStatusEl.textContent = text;
+    bootStatusEl.classList.toggle("boot-status-error", !!isError);
+  }
+  window.addEventListener("error", function (e) {
+    setBootStatus("Script error: " + ((e && e.message) || "unknown"), true);
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason;
+    var msg = (r && (r.message || r.error_description || r.msg)) || String(r);
+    setBootStatus("Unhandled error: " + msg, true);
+  });
 
   /* ---------------- constants ---------------- */
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
@@ -81,65 +80,72 @@
     return Date.now() - lastAuthAttemptAt < AUTH_ATTEMPT_GAP_MS;
   }
 
-  /* ---------------- accounts ----------------
-     Supabase Auth wants an email, so a plain username is mapped to a
-     stable pseudo-address under a fake domain. The password and RLS
-     policies do the real work of keeping one account's shelf separate
-     from another's. */
-  /* Supabase validates that auth email domains are real and deliverable —
-     reserved/fake TLDs like .local are rejected at signup ("Email address
-     is invalid"). Using a major provider's domain passes validation. These
-     addresses never receive mail (no email features are used), they only
-     serve as stable account keys for username logins. */
-  var AUTH_EMAIL_DOMAIN = "gmail.com";
-  function usernameToEmail(username) {
-    // If someone pastes/typing a full email address, keep only the mailbox
-    // part — the @domain gets replaced with our pseudo-domain anyway.
-    var local = String(username).trim().toLowerCase().split("@")[0];
-    return local.replace(/\s+/g, "") + "@" + AUTH_EMAIL_DOMAIN;
-  }
-  function emailToUsername(email, metaUsername) {
-    if (metaUsername) return metaUsername;
-    return String(email || "").split("@")[0];
-  }
-  function friendlyAuthError(msg) {
-    msg = String(msg || "");
-    if (/schema/i.test(msg)) return "Supabase's auth service is failing (this is not your books table). In your Supabase dashboard: Settings → Infrastructure → Restart project, wait a minute, then reload this page. If it keeps happening, open Logs → Auth to see the real database error — it's usually a broken trigger on auth.users.";
-    if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
-    if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
-    if (/email not confirmed|not.*confirmed/i.test(msg)) return "This project has email confirmation turned ON, so the account is locked. Fix: Supabase Dashboard → Authentication → Settings → switch \"Confirm email\" OFF, then log in again.";
-    if (/invalid.*(email|format)/i.test(msg)) return "That username didn't translate into a valid account address — try a simpler username (letters and numbers only).";
-    if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
-    if (/rate limit/i.test(msg)) return "Too many attempts — wait a moment and try again.";
-    return msg || "Something went wrong — try again.";
-  }
 
-  /* ---------------- supabase config ----------------
-     Fill these in with your own project credentials.
-     In Supabase: Project Settings -> API -> Project URL & anon public key.
-     The anon key is safe to ship in client code — access is governed by
-     Row Level Security policies on the `books` table. */
+  /* ---------------- state ---------------- */
+  var books = [];               // local cache of book records
+  var usingLocalFallback = false;
+  var db = null;                // supabase client
+  var currentEditId = null;     // set when editing an existing card
+  var localKey = "catalog-books-local-v1";
+  var currentUser = null;       // { id, username } once logged in
+  var booksChannel = null;      // realtime subscription, re-created per user
+
+  /* ---------------- supabase config ---------------- */
   var SUPABASE_URL = "https://wgyrpvrzafubezcxqrzy.supabase.co";
   var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXJwdnJ6YWZ1YmV6Y3hxcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxODI2NjYsImV4cCI6MjEwNTc1ODY2Nn0.rGn52ohlPcbKKoiRU3vsd1IrPeE5id6eriDD_JR8jco";
   var SUPABASE_TABLE = "books";
 
-  function supabaseConfigured() {
-    return SUPABASE_URL.indexOf("YOUR-PROJECT") === -1 &&
-           SUPABASE_ANON_KEY.indexOf("YOUR-ANON") === -1 &&
-           !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
+  function emailToUsername(email, metaUsername) {
+    if (metaUsername) return metaUsername;
+    return String(email || "").split("@")[0];
   }
 
+  /* Loads the Supabase client library, but never hangs silently: if the
+     CDN request doesn't finish within 8s, this rejects with a clear
+     reason instead of leaving the page stuck with no feedback. */
   function loadSupabaseClient() {
     if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
     return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error("Timed out loading the account library from cdn.jsdelivr.net (likely blocked by this host's network/CSP)."));
+      }, 8000);
       var s = document.createElement("script");
       s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
-      s.onload = function () { resolve(window.supabase || null); };
-      s.onerror = function () { reject(new Error("supabase client failed to load")); };
+      s.onload = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(window.supabase || null);
+      };
+      s.onerror = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error("The account library failed to load from cdn.jsdelivr.net (network or CSP blocked it)."));
+      };
       document.head.appendChild(s);
     });
   }
 
+  /* Sets up the Supabase client only. Throws (with a clear message) on
+     any failure instead of silently returning false, so boot() below can
+     show exactly what went wrong. */
+  async function connectSupabase() {
+    setBootStatus("Loading account library…");
+    var supa = await loadSupabaseClient();
+    if (!supa || !supa.createClient) throw new Error("Account library loaded but createClient is missing.");
+    setBootStatus("Connecting…");
+    db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        fetch: function (url, options) {
+          return fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(15000) }));
+        }
+      }
+    });
+  }
   /* ---------------- persistence ---------------- */
   function loadLocalFallback() {
     try {
@@ -178,28 +184,6 @@
     renderAll();
   }
 
-  /* Sets up the Supabase client only (no data fetched yet — that
-     happens once someone is logged in, in loadBooksForUser). Returns
-     true if a usable client was created. */
-  async function connectSupabase() {
-    if (!supabaseConfigured()) return false;
-    try {
-      var supa = await loadSupabaseClient();
-      // Hard timeout on every request — a damaged/stuck auth service otherwise
-      // hangs forever, leaving buttons disabled with no feedback.
-      db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: {
-          fetch: function (url, options) {
-            return fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(15000) }));
-          }
-        }
-      });
-      return true;
-    } catch (e) {
-      db = null;
-      return false;
-    }
-  }
 
   /* Translates raw PostgREST/Supabase errors into the exact fix, and
      logs runnable SQL to the console when the database needs attention. */
@@ -918,234 +902,71 @@
     origStopScanner();
   };
 
-  /* ---------------- auth gate ---------------- */
-  var authGateEl = document.getElementById("authGate");
-  var appShellEl = document.getElementById("appShell");
-  var whoamiEl = document.getElementById("whoami");
+
+  /* ---------------- boot: require a session, or redirect to login ---------------- */
+  var pageEl = document.getElementById("page");
   var logoutBtn = document.getElementById("logoutBtn");
-
-  function setAuthMode(mode) {
-    authMode = mode;
-    document.getElementById("tabLogin").classList.toggle("active", mode === "login");
-    document.getElementById("tabLogin").setAttribute("aria-selected", mode === "login");
-    document.getElementById("tabSignup").classList.toggle("active", mode === "signup");
-    document.getElementById("tabSignup").setAttribute("aria-selected", mode === "signup");
-    document.getElementById("authSubmit").textContent = mode === "login" ? "Log in" : "Create account";
-    document.getElementById("authPass").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
-    document.getElementById("authError").style.display = "none";
-    document.getElementById("authStatus").textContent = "";
-  }
-
-  function wireAuthForm() {
-    document.getElementById("tabLogin").addEventListener("click", function () { setAuthMode("login"); });
-    document.getElementById("tabSignup").addEventListener("click", function () { setAuthMode("signup"); });
-
-    document.getElementById("authForm").addEventListener("submit", async function (e) {
-      e.preventDefault();
-      var username = document.getElementById("authUser").value.trim();
-      var password = document.getElementById("authPass").value;
-      var errEl = document.getElementById("authError");
-      var statusEl = document.getElementById("authStatus");
-      var submitBtn = document.getElementById("authSubmit");
-      errEl.style.display = "none";
-
-      if (!username || !password) return;
-      if (authThrottleHit()) { authThrottleNotice(); return; }
-      lastAuthAttemptAt = Date.now();
-      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
-
-      submitBtn.disabled = true;
-      statusEl.innerHTML = '<span class="spinner"></span> ' + (authMode === "login" ? "Logging in…" : "Creating your account…");
-
-      // If Supabase goes silent (stuck auth service), give up after 20s,
-      // re-enable the form, and say exactly what to do.
-      var wd = setTimeout(function () {
-        if (!authGateEl.hidden) {
-          submitBtn.disabled = false;
-          statusEl.textContent = "";
-          errEl.textContent = "Supabase never answered — its auth service is probably stuck. Restart the project (Dashboard → Settings → Infrastructure → Restart), wait a minute, then try again. Or use \"Skip for now\" meanwhile.";
-          errEl.style.display = "block";
-        }
-      }, 20000);
-
-      var email = usernameToEmail(username);
-      try {
-        var result;
-        async function attempt() {
-          if (authMode === "login") {
-            return db.auth.signInWithPassword({ email: email, password: password });
-          }
-          return db.auth.signUp({
-            email: email,
-            password: password,
-            options: { data: { username: username } }
-          });
-        }
-        result = await attempt();
-        // "Database error querying schema" from the auth service is often a
-        // stale GoTrue schema cache — one retry after a short wait clears it.
-        if (result.error && /schema/i.test(result.error.message || "")) {
-          statusEl.innerHTML = '<span class="spinner"></span> Retrying — Supabase was slow to respond…';
-          await new Promise(function (r) { setTimeout(r, 2500); });
-          result = await attempt();
-        }
-        if (result.error) throw result.error;
-
-        if (authMode === "signup" && !(result.data && result.data.session)) {
-          // Email confirmation is turned on in the Supabase project — no session yet.
-          statusEl.textContent = "Account created — check that this project allows sign-in without email confirmation, then log in.";
-          submitBtn.disabled = false;
-          return;
-        }
-        // NOTE: we deliberately do NOT rely on onAuthStateChange to open the
-        // app. In some environments (restricted storage, managed browsers,
-        // old webviews) that event never fires even though the server
-        // confirms the sign-in — the user ends up stuck on the login screen
-        // with a disabled button while the auth logs show success. If the
-        // response carries a session, open the app directly, right now.
-        clearTimeout(wd);
-        statusEl.textContent = "";
-        submitBtn.disabled = false;
-        if (result.data && result.data.session && result.data.session.user) {
-          showApp(result.data.session.user);
-        }
-      } catch (err) {
-        clearTimeout(wd);
-        submitBtn.disabled = false;
-        statusEl.textContent = "";
-        errEl.textContent = friendlyAuthError(err && err.message);
-        errEl.style.display = "block";
-      }
-    });
-
-    document.getElementById("googleBtn").addEventListener("click", async function () {
-      var errEl = document.getElementById("authError");
-      var statusEl = document.getElementById("authStatus");
-      var btn = this;
-      errEl.style.display = "none";
-      if (authThrottleHit()) { authThrottleNotice(); return; }
-      lastAuthAttemptAt = Date.now();
-      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
-      btn.disabled = true;
-      statusEl.innerHTML = '<span class="spinner"></span> Redirecting to Google…';
-      var gwd = setTimeout(function () {
-        if (!authGateEl.hidden) {
-          btn.disabled = false;
-          statusEl.textContent = "";
-          errEl.textContent = "Supabase never answered — restart the project (Dashboard → Settings → Infrastructure → Restart) and try again.";
-          errEl.style.display = "block";
-        }
-      }, 20000);
-      try {
-        // Sends the browser to Google's consent screen; Supabase redirects
-        // back here with the session, and onAuthStateChange opens the app.
-        var res = await db.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo: window.location.origin + window.location.pathname }
-        });
-        if (res.error) throw res.error;
-        // If we get here, the popup/redirect didn't kick off — rare, but recover.
-        clearTimeout(gwd);
-        statusEl.textContent = "";
-      } catch (err) {
-        clearTimeout(gwd);
-        btn.disabled = false;
-        statusEl.textContent = "";
-        errEl.textContent = friendlyAuthError(err && err.message);
-        errEl.style.display = "block";
-      }
-    });
-
-    // Lets people use the app while the Supabase project is being fixed —
-    // same local-only mode the app falls back to when no project is set up.
-    document.getElementById("skipAuthBtn").addEventListener("click", function () {
-      currentUser = null;
-      authGateEl.hidden = true;
-      appShellEl.hidden = false;
-      logoutBtn.hidden = true;
-      initLocalOnlyMode();
-      renderAll();
-    });
-
-    logoutBtn.addEventListener("click", async function () {
-      if (db && db.auth) { try { await db.auth.signOut(); } catch (e) {} }
-    });
-  }
-
-  function showAuthGate() {
-    authGateEl.hidden = false;
-    appShellEl.hidden = true;
-    logoutBtn.hidden = true;
-    whoamiEl.textContent = "";
-    document.getElementById("authForm").reset();
-    document.getElementById("authSubmit").disabled = false;
-    document.getElementById("authStatus").textContent = "";
-    setAuthMode("login");
-    document.getElementById("authUser").focus();
-  }
+  var whoamiEl = document.getElementById("whoami");
 
   function showApp(user) {
     currentUser = { id: user.id, username: emailToUsername(user.email, user.user_metadata && user.user_metadata.username) };
-    authGateEl.hidden = true;
-    appShellEl.hidden = false;
-    logoutBtn.hidden = false;
     whoamiEl.textContent = currentUser.username;
+    logoutBtn.hidden = false;
+    logoutBtn.addEventListener("click", async function () {
+      logoutBtn.disabled = true;
+      try { if (db && db.auth) await db.auth.signOut(); } catch (e) {}
+      try { sessionStorage.removeItem("catalogLocalOnly"); } catch (e) {}
+      window.location.href = "login.html";
+    });
     usingLocalFallback = false;
     books = [];
     renderAll();
+    setBootStatus("");
+    pageEl.hidden = false;
     loadBooksForUser(currentUser.id);
   }
 
-  function handleLoggedOut() {
-    if (booksChannel && db) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
-    currentUser = null;
-    books = [];
-    showAuthGate();
+  function showLocalOnly() {
+    logoutBtn.hidden = true;
+    whoamiEl.textContent = "local only";
+    initLocalOnlyMode();
+    setBootStatus("");
+    pageEl.hidden = false;
   }
 
-  /* ---------------- boot ---------------- */
-  async function boot() {
-    var connected = await connectSupabase();
-    if (!connected) {
-      // No Supabase project configured — fall back to a single
-      // unauthenticated, browser-local shelf (no accounts possible).
-      authGateEl.hidden = true;
-      appShellEl.hidden = false;
-      logoutBtn.hidden = true;
-      initLocalOnlyMode();
-      renderAll();
+  (async function boot() {
+    var localOnly = false;
+    try { localOnly = sessionStorage.getItem("catalogLocalOnly") === "1"; } catch (e) {}
+
+    if (localOnly) {
+      showLocalOnly();
       return;
     }
 
-    wireAuthForm();
-    db.auth.onAuthStateChange(function (_event, session) {
-      if (session && session.user) showApp(session.user);
-      else handleLoggedOut();
-    });
-
     try {
+      await connectSupabase();
+      setBootStatus("Checking your session…");
       var sessionRes = await db.auth.getSession();
       var session = sessionRes && sessionRes.data && sessionRes.data.session;
-      if (session && session.user) showApp(session.user);
-      else showAuthGate();
+      if (session && session.user) {
+        showApp(session.user);
+      } else {
+        setBootStatus("Not signed in — redirecting…");
+        window.location.href = "login.html";
+      }
     } catch (e) {
-      showAuthGate();
+      // Can't reach the account service at all — don't trap the user with
+      // no way forward: say exactly what happened and offer local mode.
+      setBootStatus(
+        "Couldn't reach the account service: " + (e && e.message ? e.message : "unknown error") +
+        " — tap here to continue in local-only mode.",
+        true
+      );
+      bootStatusEl.style.cursor = "pointer";
+      bootStatusEl.addEventListener("click", function () {
+        try { sessionStorage.setItem("catalogLocalOnly", "1"); } catch (e2) {}
+        showLocalOnly();
+      }, { once: true });
     }
-
-    // Safety net: poll the stored session for the first 30 seconds after
-    // load. Covers the case where a sign-in completes but every event
-    // channel to this page is dropped — the gate would otherwise sit
-    // there forever despite a valid session.
-    var sessionPolls = 0;
-    var sessionPoll = setInterval(async function () {
-      sessionPolls++;
-      if (sessionPolls > 10 || !authGateEl.hidden) { clearInterval(sessionPoll); return; }
-      try {
-        var r = await db.auth.getSession();
-        var s = r && r.data && r.data.session;
-        if (s && s.user) { clearInterval(sessionPoll); showApp(s.user); }
-      } catch (e) { /* keep polling until the window ends */ }
-    }, 3000);
-  }
-  boot();
+  })();
 })();
