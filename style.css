@@ -663,3 +663,23 @@ select.genre-filter {
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0,0,0,0.3);
 }
+
+/* always-visible boot/connection status line (top of page) */
+.boot-status {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: var(--forest-dark);
+  color: var(--paper-raised);
+  padding: 0.6rem 1rem;
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: center;
+}
+.boot-status-error {
+  background: #b3261e;
+  cursor: pointer;
+}
