@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<title>EmuOnline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="script.js"></script>
+
+<body>
+  <!-- Sidebar -->
+  <!-- Old Code -->
+  <!-- <div class="w3-sidebar w3-light-grey w3-bar-block" style="width:15%">
+            <h3 class="w3-bar-item">Games</h3>
+            <input type="text" class="w3-input" placeholder="Search games...">
+            <a href="pokemonruby.html" class="w3-bar-item w3-button">Pokemon Ruby</a>
+            <a href="pokemonsapphire.html" class="w3-bar-item w3-button">Pokemon Sapphire</a>
+            <a href="pokemonemerald.html" class="w3-bar-item w3-button">Pokemon Emerald</a>
+            <a href="pokemonfirered.html" class="w3-bar-item w3-button">Pokemon FireRed</a>
+            <a href="pokemonleafgreen.html" class="w3-bar-item w3-button">Pokemon LeafGreen</a>
+            <a href="#" class="w3-bar-item w3-button">Game 6</a>
+        </div> -->
+  <div class="w3-sidebar w3-light-grey w3-bar-block" style="width:15%">
+    <h3 class="w3-bar-item">Games</h3>
+    <input type="text" class="w3-input" oninput="updateGameList()    " placeholder="Search games...">
+    <div id="gameList"></div>
+  </div>
+  <!-- Page Content -->
+  <div style="margin-left:15%">
+    <div class="w3-container w3-teal" style="height:50px">
+      <h1 style="margin:0; line-height:50px;">EmuOnline</h1>
+    </div>
+    <div class="w3-container">
+      <h2>Navigation</h2>
+      <p>Navigating is very simple!</p>
+      <p>Use the sidebar on the left to look for games. You can even use the searchbar to search for games!</p>
+      <hr>
+      </hr>
+      <h2>How to play?</h2>
+      <p>Click START GAME</p>
+      <p>The cogwheel allows you to access settings</p>
+      <p>The controller icon allows you to customize your keybinds!</p>
+      <p>You can hover over the icons to know more about them</p>
+      <hr>
+      </hr>
+      <h2>Report a bug/issue</h2>
+      <p>Found a bug or an issue? Report it</p>
+      <a href="https://www.github.com/smit4k/EmuOnline-Website/issues">here</a>
+    </div>
+  </div>
+</body>
+
+</html>
