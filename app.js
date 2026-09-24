@@ -1,6 +1,13 @@
 (function () {
   "use strict";
-
+  function openSite(url) {
+    var win = window.open('about:blank', '_blank');
+    var iframe = win.document.createElement('iframe');
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.src = url;
+    win.document.body.appendChild(iframe);
   /* ---------------- on-page status / error banner ----------------
      Same diagnostic approach as auth.js: a persistent status line that
      shows *while* something is loading (not just when it errors), so a
