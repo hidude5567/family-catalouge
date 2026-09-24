@@ -1,10 +1,28 @@
 (function () {
   "use strict";
+  var bootStatusEl = document.getElementById("bootStatus");
+  function setBootStatus(text, isError) {
+    if (!bootStatusEl) return;
+    if (!text) { bootStatusEl.hidden = true; return; }
+    bootStatusEl.hidden = false;
+    bootStatusEl.textContent = text;
+    bootStatusEl.classList.toggle("boot-status-error", !!isError);
+  }
+  window.addEventListener("error", function (e) {
+    setBootStatus("Script error: " + ((e && e.message) || "unknown"), true);
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason;
+    var msg = (r && (r.message || r.error_description || r.msg)) || String(r);
+    setBootStatus("Unhandled error: " + msg, true);
+  });
 
-  /* ---------------- constants ---------------- */
   var GENRE_SUGGESTIONS = ["Fiction","Nonfiction","Mystery","Science Fiction","Fantasy","Biography","History","Romance","Poetry","Self-Help","Science","Philosophy","Horror","Classic","Young Adult","Graphic Novel","Memoir","Thriller"];
+  var MUSIC_GENRE_SUGGESTIONS = ["Rock","Pop","Hip-Hop","Jazz","Classical","Country","Folk","Electronic","R&B","Metal","Punk","Blues","Reggae","Soundtrack","Children's","Holiday","Comedy","Other"];
+  var MUSIC_FORMATS = ["CD","Vinyl","Cassette","Digital","Other"];
   var SPINE_COLORS = ["#2F4A3B","#6D2E38","#A8763B","#2B3A55","#4B3350","#1F4A4A","#7A3B2E","#4A4A2B"];
   var BOOK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M4 4.5c2.2-.9 5-1 8 .3V19c-3-1.3-5.8-1.2-8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 4.5c-2.2-.9-5-1-8 .3V19c3-1.3 5.8-1.2 8-.3V4.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  var DISC_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M12 3.5a8.5 8.5 0 016.8 3.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
   function coverUrl(isbn) {
     if (!isbn) return null;
@@ -12,7 +30,10 @@
     if (!clean) return null;
     return "https://covers.openlibrary.org/b/isbn/" + encodeURIComponent(clean) + "-M.jpg?default=false";
   }
-
+  function albumCoverUrl(mbid) {
+    if (!mbid) return null;
+    return "https://coverartarchive.org/release/" + encodeURIComponent(mbid) + "/front-250";
+  }
   function hashStr(s) {
     var h = 0;
     for (var i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
@@ -37,335 +58,326 @@
     clearTimeout(showToast._h);
     showToast._h = setTimeout(function () { t.classList.remove("show"); }, 2400);
   }
+  function fetchJson(url, ms) {
+    return fetch(url, { signal: AbortSignal.timeout(ms || 12000) }).then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    });
+  }
 
-/* ---------------- state ---------------- */
-  var books = [];               // local cache of book records
+  var books = [];
+  var albums = [];
+  var viewMode = "books";
   var usingLocalFallback = false;
-  var db = null;                // supabase client (or legacy claude db)
-  var currentEditId = null;     // set when editing an existing card
+  var db = null;
+  var currentEditId = null;
+  var currentEditAlbumId = null;
   var localKey = "catalog-books-local-v1";
-  var currentUser = null;       // { id, username } once logged in
-  var booksChannel = null;      // realtime subscription, re-created per user
-  var authMode = "login";       // "login" | "signup"
-  var lastAuthAttemptAt = 0;    // client-side spacing so we never burn the server's rate limit
-  var AUTH_ATTEMPT_GAP_MS = 12000;
-  function authThrottleNotice() {
-    var errEl = document.getElementById("authError");
-    errEl.textContent = "Easy — give it a few seconds between attempts. Supabase limits how fast you can try, and each try resets the timer.";
-    errEl.style.display = "block";
-  }
-  function authThrottleHit() {
-    return Date.now() - lastAuthAttemptAt < AUTH_ATTEMPT_GAP_MS;
-  }
+  var albumsLocalKey = "catalog-albums-local-v1";
+  var currentUser = null;
+  var booksChannel = null;
+  var albumsChannel = null;
 
-  /* ---------------- accounts ----------------
-     Supabase Auth wants an email, so a plain username is mapped to a
-     stable pseudo-address under a fake domain. The password and RLS
-     policies do the real work of keeping one account's shelf separate
-     from another's. */
-  /* Supabase validates that auth email domains are real and deliverable —
-     reserved/fake TLDs like .local are rejected at signup ("Email address
-     is invalid"). Using a major provider's domain passes validation. These
-     addresses never receive mail (no email features are used), they only
-     serve as stable account keys for username logins. */
-  var AUTH_EMAIL_DOMAIN = "gmail.com";
-  function usernameToEmail(username) {
-    // If someone pastes/typing a full email address, keep only the mailbox
-    // part — the @domain gets replaced with our pseudo-domain anyway.
-    var local = String(username).trim().toLowerCase().split("@")[0];
-    return local.replace(/\s+/g, "") + "@" + AUTH_EMAIL_DOMAIN;
-  }
+  var SUPABASE_URL = "https://wgyrpvrzafubezcxqrzy.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXJwdnJ6YWZ1YmV6Y3hxcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxODI2NjYsImV4cCI6MjEwNTc1ODY2Nn0.rGn52ohlPcbKKoiRU3vsd1IrPeE5id6eriDD_JR8jco";
+  var SUPABASE_TABLE = "books";
+  var SUPABASE_ALBUMS_TABLE = "albums";
+
   function emailToUsername(email, metaUsername) {
     if (metaUsername) return metaUsername;
     return String(email || "").split("@")[0];
   }
-  function friendlyAuthError(msg) {
-    msg = String(msg || "");
-    if (/schema/i.test(msg)) return "Supabase's auth service is failing (this is not your books table). In your Supabase dashboard: Settings → Infrastructure → Restart project, wait a minute, then reload this page. If it keeps happening, open Logs → Auth to see the real database error — it's usually a broken trigger on auth.users.";
-    if (/already registered|already exists|duplicate/i.test(msg)) return "That username is already taken.";
-    if (/invalid login credentials/i.test(msg)) return "Wrong username or password.";
-    if (/email not confirmed|not.*confirmed/i.test(msg)) return "This project has email confirmation turned ON, so the account is locked. Fix: Supabase Dashboard → Authentication → Settings → switch \"Confirm email\" OFF, then log in again.";
-    if (/invalid.*(email|format)/i.test(msg)) return "That username didn't translate into a valid account address — try a simpler username (letters and numbers only).";
-    if (/password.*(least|short|6)/i.test(msg)) return "Password needs to be at least 6 characters.";
-    if (/rate limit/i.test(msg)) return "Too many attempts — wait a moment and try again.";
-    return msg || "Something went wrong — try again.";
-  }
-
-  /* ---------------- supabase config ----------------
-     Fill these in with your own project credentials.
-     In Supabase: Project Settings -> API -> Project URL & anon public key.
-     The anon key is safe to ship in client code — access is governed by
-     Row Level Security policies on the `books` table. */
-  var SUPABASE_URL = "https://wgyrpvrzafubezcxqrzy.supabase.co";
-  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXJwdnJ6YWZ1YmV6Y3hxcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxODI2NjYsImV4cCI6MjEwNTc1ODY2Nn0.rGn52ohlPcbKKoiRU3vsd1IrPeE5id6eriDD_JR8jco";
-  var SUPABASE_TABLE = "books";
-
-  function supabaseConfigured() {
-    return SUPABASE_URL.indexOf("YOUR-PROJECT") === -1 &&
-           SUPABASE_ANON_KEY.indexOf("YOUR-ANON") === -1 &&
-           !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
-  }
-
   function loadSupabaseClient() {
     if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
     return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error("Timed out loading the account library from cdn.jsdelivr.net (likely blocked by this host's network/CSP)."));
+      }, 8000);
       var s = document.createElement("script");
       s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
-      s.onload = function () { resolve(window.supabase || null); };
-      s.onerror = function () { reject(new Error("supabase client failed to load")); };
+      s.onload = function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        resolve(window.supabase || null);
+      };
+      s.onerror = function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        reject(new Error("The account library failed to load from cdn.jsdelivr.net (network or CSP blocked it)."));
+      };
       document.head.appendChild(s);
     });
   }
+  async function connectSupabase() {
+    setBootStatus("Loading account library…");
+    var supa = await loadSupabaseClient();
+    if (!supa || !supa.createClient) throw new Error("Account library loaded but createClient is missing.");
+    setBootStatus("Connecting…");
+    db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        fetch: function (url, options) {
+          return fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(15000) }));
+        }
+      }
+    });
+  }
 
-  /* ---------------- persistence ---------------- */
-  function loadLocalFallback() {
+  function loadLocalStore(key, into, mapFn) {
     try {
-      var raw = localStorage.getItem(localKey);
-      books = raw ? JSON.parse(raw) : [];
-    } catch (e) { books = []; }
+      var raw = localStorage.getItem(key);
+      into.length = 0;
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        (Array.isArray(parsed) ? parsed : []).forEach(function (r) { into.push(mapFn ? mapFn(r) : r); });
+      }
+    } catch (e) { into.length = 0; }
+  }
+  function saveLocalStore(key, arr) {
+    try { localStorage.setItem(key, JSON.stringify(arr)); } catch (e) {}
+  }
+  function loadLocalFallback() {
+    loadLocalStore(localKey, books);
+    loadLocalStore(albumsLocalKey, albums);
     renderAll();
   }
   function saveLocalFallback() {
-    try { localStorage.setItem(localKey, JSON.stringify(books)); } catch (e) {}
+    saveLocalStore(localKey, books);
+    saveLocalStore(albumsLocalKey, albums);
   }
-
   function upsertLocalBook(book) {
     var idx = books.findIndex(function (b) { return b.id === book.id; });
     if (idx >= 0) books[idx] = book; else books.push(book);
   }
-  function removeLocalBook(id) {
-    books = books.filter(function (b) { return b.id !== id; });
+  function removeLocalBook(id) { books = books.filter(function (b) { return b.id !== id; }); }
+  function upsertLocalAlbum(album) {
+    var idx = albums.findIndex(function (a) { return a.id === album.id; });
+    if (idx >= 0) albums[idx] = album; else albums.push(album);
   }
+  function removeLocalAlbum(id) { albums = albums.filter(function (a) { return a.id !== id; }); }
 
-  function setSyncNote(text) {
-    document.getElementById("syncNote").textContent = text;
-  }
+  function setSyncNote(text) { document.getElementById("syncNote").textContent = text; }
 
   function applyRemoteRows(rows) {
     books = rows.map(function (r) {
       return {
-        id: String(r.id),
-        title: r.title || "",
-        author: r.author || "",
-        genre: r.genre || "",
-        isbn: r.isbn || "",
+        id: String(r.id), title: r.title || "", author: r.author || "",
+        genre: r.genre || "", isbn: r.isbn || "", quantity: r.quantity || 1,
+        addedAt: r.added_at || r.addedAt || new Date().toISOString()
+      };
+    });
+    renderAll();
+  }
+  function applyRemoteAlbumRows(rows) {
+    albums = rows.map(function (r) {
+      return {
+        id: String(r.id), title: r.title || "", artist: r.artist || "",
+        format: r.format || "", year: r.year || null, genre: r.genre || "",
+        tracks: String(r.tracks || "").split("\n").map(function (t) { return t.trim(); }).filter(Boolean),
+        mbid: r.mbid || "",
         addedAt: r.added_at || r.addedAt || new Date().toISOString()
       };
     });
     renderAll();
   }
 
-  /* Sets up the Supabase client only (no data fetched yet — that
-     happens once someone is logged in, in loadBooksForUser). Returns
-     true if a usable client was created. */
-  async function connectSupabase() {
-    if (!supabaseConfigured()) return false;
-    try {
-      var supa = await loadSupabaseClient();
-      // Hard timeout on every request — a damaged/stuck auth service otherwise
-      // hangs forever, leaving buttons disabled with no feedback.
-      db = supa.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: {
-          fetch: function (url, options) {
-            return fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(15000) }));
-          }
-        }
-      });
-      return true;
-    } catch (e) {
-      db = null;
-      return false;
-    }
-  }
-
-  /* Translates raw PostgREST/Supabase errors into the exact fix, and
-     logs runnable SQL to the console when the database needs attention. */
-  function diagnoseDbError(e) {
-    var msg = (e && (e.message || e.hint || e.details)) || String(e || "");
-    var code = e && e.code ? String(e.code) : "";
-    var sql =
-      "-- The Catalog: full setup (safe to re-run)\n" +
+  function setupSql() {
+    return "-- The Catalog: full setup (safe to re-run)\n" +
       "create table if not exists public.books (\n" +
-      "  id text primary key,\n" +
-      "  title text not null,\n" +
-      "  author text not null,\n" +
-      "  genre text,\n" +
-      "  isbn text,\n" +
+      "  id text primary key, title text not null, author text not null,\n" +
+      "  genre text, isbn text, quantity int not null default 1,\n" +
       "  added_at timestamptz not null default now(),\n" +
       "  user_id uuid not null references auth.users(id) on delete cascade\n" +
       ");\n" +
+      "alter table public.books add column if not exists quantity int not null default 1;\n" +
       "alter table public.books enable row level security;\n" +
-      "create policy if not exists \"select own books\" on public.books for select using (auth.uid() = user_id);\n" +
-      "create policy if not exists \"insert own books\" on public.books for insert with check (auth.uid() = user_id);\n" +
-      "create policy if not exists \"update own books\" on public.books for update using (auth.uid() = user_id);\n" +
-      "create policy if not exists \"delete own books\" on public.books for delete using (auth.uid() = user_id);\n" +
+      "drop policy if exists \"select own books\" on public.books;\n" +
+      "create policy \"select own books\" on public.books for select using (auth.uid() = user_id);\n" +
+      "drop policy if exists \"insert own books\" on public.books;\n" +
+      "create policy \"insert own books\" on public.books for insert with check (auth.uid() = user_id);\n" +
+      "drop policy if exists \"update own books\" on public.books;\n" +
+      "create policy \"update own books\" on public.books for update using (auth.uid() = user_id);\n" +
+      "drop policy if exists \"delete own books\" on public.books;\n" +
+      "create policy \"delete own books\" on public.books for delete using (auth.uid() = user_id);\n" +
       "grant usage on schema public to anon, authenticated;\n" +
       "grant select, insert, update, delete on public.books to anon, authenticated;\n" +
       "alter publication supabase_realtime add table public.books;\n" +
+      "create table if not exists public.albums (\n" +
+      "  id text primary key, title text not null, artist text not null,\n" +
+      "  format text, year int, genre text, tracks text, mbid text,\n" +
+      "  added_at timestamptz not null default now(),\n" +
+      "  user_id uuid not null references auth.users(id) on delete cascade\n" +
+      ");\n" +
+      "alter table public.albums enable row level security;\n" +
+      "drop policy if exists \"select own albums\" on public.albums;\n" +
+      "create policy \"select own albums\" on public.albums for select using (auth.uid() = user_id);\n" +
+      "drop policy if exists \"insert own albums\" on public.albums;\n" +
+      "create policy \"insert own albums\" on public.albums for insert with check (auth.uid() = user_id);\n" +
+      "drop policy if exists \"update own albums\" on public.albums;\n" +
+      "create policy \"update own albums\" on public.albums for update using (auth.uid() = user_id);\n" +
+      "drop policy if exists \"delete own albums\" on public.albums;\n" +
+      "create policy \"delete own albums\" on public.albums for delete using (auth.uid() = user_id);\n" +
+      "grant select, insert, update, delete on public.albums to anon, authenticated;\n" +
+      "alter publication supabase_realtime add table public.albums;\n" +
       "notify pgrst, 'reload schema';";
-
-    if (/schema|pgrst/i.test(msg) || /schema|pgrst/i.test(code)) {
-      // "Database error querying schema" = PostgREST's schema cache is stale
-      // (happens right after creating/altering a table) or it can't see the
-      // table at all. Fix: reload the cache in the SQL editor.
-      return {
-        note: "Supabase's schema cache is stale — run \u201cnotify pgrst, 'reload schema';\u201d in the SQL editor, then reload this page.",
-        consoleMsg: "The Catalog: PostgREST schema cache error. Run this in Supabase SQL editor:\n\n" + sql
-      };
-    }
-    if (/42P01|does not exist/i.test(msg) || code === "42P01") {
-      return {
-        note: "The 'books' table wasn't found. Run the setup SQL (printed in the browser console), then reload.",
-        consoleMsg: "The Catalog: table 'books' missing. Run this in Supabase SQL editor:\n\n" + sql
-      };
-    }
-    if (/42703|column .* does not exist/i.test(msg) || code === "42703") {
-      return {
-        note: "The 'books' table is missing a column the app needs (id, title, author, genre, isbn, added_at, user_id). Full setup SQL is in the browser console.",
-        consoleMsg: "The Catalog: column mismatch on 'books'. Run this in Supabase SQL editor:\n\n" + sql
-      };
-    }
-    if (/42501|permission denied|row-level security/i.test(msg) || code === "42501") {
-      return {
-        note: "The database is refusing access (grants/RLS). Fix SQL is printed in the browser console.",
-        consoleMsg: "The Catalog: permission denied on 'books'. Run this in Supabase SQL editor:\n\n" + sql
-      };
-    }
-    return {
-      note: "Couldn't reach Supabase — saving to this browser only. (" + msg + ")",
-      consoleMsg: "The Catalog: unexpected database error: " + msg + "\nFull setup SQL:\n\n" + sql
-    };
   }
 
-  /* Fetches and subscribes to just the logged-in user's own books. */
+  function diagnoseDbError(e, tableName) {
+    var msg = (e && (e.message || e.hint || e.details)) || String(e || "");
+    var code = e && e.code ? String(e.code) : "";
+    var label = tableName || "books";
+    if (/schema|pgrst/i.test(msg) || /schema|pgrst/i.test(code)) {
+      return { note: "Supabase's schema cache is stale — run \u201cnotify pgrst, 'reload schema';\u201d in the SQL editor, then reload this page." };
+    }
+    if (/42P01|does not exist/i.test(msg) || code === "42P01") {
+      return { note: "The '" + label + "' table wasn't found — run the setup SQL (printed in the browser console), then reload." };
+    }
+    if (/42703|column .* does not exist/i.test(msg) || code === "42703") {
+      return { note: "The '" + label + "' table is missing a column the app needs. Full setup SQL is in the browser console." };
+    }
+    if (/42501|permission denied|row-level security/i.test(msg) || code === "42501") {
+      return { note: "The database is refusing access (grants/RLS). Fix SQL is printed in the browser console." };
+    }
+    return { note: "Couldn't reach Supabase — saving to this browser only. (" + msg + ")" };
+  }
+
   async function loadBooksForUser(userId) {
     if (booksChannel) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
-
     async function fetchBooks() {
       return db.from(SUPABASE_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
     }
-
-    setSyncNote("Your library, saved and synced to Supabase.");
     var res = await fetchBooks();
-
-    // Schema-cache errors right after creating the table are transient —
-    // wait two seconds and try once more before giving up.
     if (res.error && /schema/i.test(res.error.message || "")) {
       await new Promise(function (r) { setTimeout(r, 2000); });
       res = await fetchBooks();
     }
-
     if (res.error) {
-      var d = diagnoseDbError(res.error);
-      console.warn(d.consoleMsg);
+      console.warn("The Catalog: books load failed. Setup SQL:\n\n" + setupSql());
       usingLocalFallback = true;
-      setSyncNote(d.note + " (saving to this browser until then)");
-      loadLocalFallback();
-      return;
+      setSyncNote(diagnoseDbError(res.error, "books").note);
+      return false;
     }
-
     applyRemoteRows(res.data || []);
-
     booksChannel = db.channel("catalog-books-changes-" + userId)
       .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "user_id=eq." + userId },
-        function () {
-          fetchBooks().then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); });
-        })
-      .subscribe(function (status, err) {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          // Almost always means the table isn't in the supabase_realtime
-          // publication. Data still saves fine — live updates just won't
-          // push; the app refetches after every local write instead.
-          console.warn("The Catalog: realtime subscription failed (books table likely not in the supabase_realtime publication). Run in SQL editor:\n\nalter publication supabase_realtime add table public.books;");
-        }
-      });
+        function () { fetchBooks().then(function (r2) { if (!r2.error) applyRemoteRows(r2.data || []); }); })
+      .subscribe();
+    return true;
   }
 
-  /* Local-only, single-browser mode — used when Supabase isn't
-     configured at all, so there's no account system to gate behind. */
+  async function loadAlbumsForUser(userId) {
+    if (albumsChannel) { try { db.removeChannel(albumsChannel); } catch (e) {} albumsChannel = null; }
+    async function fetchAlbums() {
+      return db.from(SUPABASE_ALBUMS_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
+    }
+    var res = await fetchAlbums();
+    if (res.error && /schema/i.test(res.error.message || "")) {
+      await new Promise(function (r) { setTimeout(r, 2000); });
+      res = await fetchAlbums();
+    }
+    if (res.error) {
+      console.warn("The Catalog: albums load failed (the 'albums' table is probably not created yet). Setup SQL:\n\n" + setupSql());
+      setSyncNote("Music shelf: saving to this browser only until the 'albums' table exists in Supabase (setup SQL is in the browser console).");
+      return false;
+    }
+    applyRemoteAlbumRows(res.data || []);
+    albumsChannel = db.channel("catalog-albums-changes-" + userId)
+      .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_ALBUMS_TABLE, filter: "user_id=eq." + userId },
+        function () { fetchAlbums().then(function (r2) { if (!r2.error) applyRemoteAlbumRows(r2.data || []); }); })
+      .subscribe();
+    return true;
+  }
+
+  async function loadDataForUser(userId) {
+    setSyncNote("Your library, saved and synced to Supabase.");
+    var booksOk = await loadBooksForUser(userId);
+    if (!booksOk) loadLocalFallback();
+  }
+
   function initLocalOnlyMode() {
     usingLocalFallback = true;
-    setSyncNote("Saved to this browser only — add your Supabase credentials in script.js to enable accounts and syncing.");
+    setSyncNote("Saved to this browser only.");
     loadLocalFallback();
   }
 
   async function persistBook(book) {
     if (usingLocalFallback || !db) {
-      upsertLocalBook(book);
-      saveLocalFallback();
-      renderAll();
-      return;
+      upsertLocalBook(book); saveLocalFallback(); renderAll(); return;
     }
-    // Supabase path
-    if (db.from) {
-      var row = {
-        id: book.id,
-        title: book.title,
-        author: book.author,
-        genre: book.genre || null,
-        isbn: book.isbn || null,
-        added_at: book.addedAt,
-        user_id: currentUser ? currentUser.id : null
-      };
-      var res = await db.from(SUPABASE_TABLE).upsert(row, { onConflict: "id" });
-      if (res.error) {
-        showToast("Couldn't save — try again.");
-        return;
-      }
-      upsertLocalBook(book);
-      saveLocalFallback();
-      renderAll();
-      return;
-    }
-    // Legacy claude db path
-    try {
-      await db.collection("books").doc(book.id).set(book);
-    } catch (e) {
-      showToast("Couldn't save — try again.");
-    }
+    var row = {
+      id: book.id, title: book.title, author: book.author,
+      genre: book.genre || null, isbn: book.isbn || null,
+      quantity: book.quantity || 1,
+      added_at: book.addedAt, user_id: currentUser ? currentUser.id : null
+    };
+    var res = await db.from(SUPABASE_TABLE).upsert(row, { onConflict: "id" });
+    if (res.error) { showToast("Couldn't save — try again."); return; }
+    upsertLocalBook(book); saveLocalFallback(); renderAll();
   }
 
   async function deleteBookById(id) {
     if (usingLocalFallback || !db) {
-      removeLocalBook(id);
-      saveLocalFallback();
-      renderAll();
-      return;
+      removeLocalBook(id); saveLocalFallback(); renderAll(); return;
     }
-    // Supabase path
-    if (db.from) {
-      var delQuery = db.from(SUPABASE_TABLE).delete().eq("id", id);
-      if (currentUser) delQuery = delQuery.eq("user_id", currentUser.id);
-      var res = await delQuery;
-      if (res.error) {
-        showToast("Couldn't remove — try again.");
-        return;
-      }
-      removeLocalBook(id);
-      saveLocalFallback();
-      renderAll();
-      return;
-    }
-    // Legacy claude db path
-    try {
-      await db.collection("books").doc(id).delete();
-    } catch (e) {
-      showToast("Couldn't remove — try again.");
-    }
+    var delQuery = db.from(SUPABASE_TABLE).delete().eq("id", id);
+    if (currentUser) delQuery = delQuery.eq("user_id", currentUser.id);
+    var res = await delQuery;
+    if (res.error) { showToast("Couldn't remove — try again."); return; }
+    removeLocalBook(id); saveLocalFallback(); renderAll();
   }
 
-  /* ---------------- rendering: grid ---------------- */
-  function populateGenreFilter() {
+  async function persistAlbum(album) {
+    if (usingLocalFallback || !db) {
+      upsertLocalAlbum(album); saveLocalFallback(); renderAll(); return;
+    }
+    var row = {
+      id: album.id, title: album.title, artist: album.artist,
+      format: album.format || null, year: album.year || null,
+      genre: album.genre || null, tracks: (album.tracks || []).join("\n"),
+      mbid: album.mbid || null,
+      added_at: album.addedAt, user_id: currentUser ? currentUser.id : null
+    };
+    var res = await db.from(SUPABASE_ALBUMS_TABLE).upsert(row, { onConflict: "id" });
+    if (res.error) {
+      upsertLocalAlbum(album); saveLocalFallback(); renderAll();
+      showToast("Saved to this browser — run the setup SQL in Supabase to sync albums.");
+      console.warn("The Catalog: album save failed (table missing?). Setup SQL:\n\n" + setupSql());
+      return;
+    }
+    upsertLocalAlbum(album); saveLocalFallback(); renderAll();
+  }
+
+  async function deleteAlbumById(id) {
+    if (usingLocalFallback || !db) {
+      removeLocalAlbum(id); saveLocalFallback(); renderAll(); return;
+    }
+    var delQuery = db.from(SUPABASE_ALBUMS_TABLE).delete().eq("id", id);
+    if (currentUser) delQuery = delQuery.eq("user_id", currentUser.id);
+    var res = await delQuery;
+    if (res.error) { showToast("Couldn't remove — try again."); return; }
+    removeLocalAlbum(id); saveLocalFallback(); renderAll();
+  }
+
+  function populateFilterSelect() {
     var sel = document.getElementById("genreFilter");
     var current = sel.value;
-    var genres = Array.from(new Set(books.map(function (b) { return b.genre; }).filter(Boolean))).sort();
-    sel.innerHTML = '<option value="">All genres</option>' + genres.map(function (g) {
-      return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + "</option>";
-    }).join("");
-    if (genres.indexOf(current) >= 0) sel.value = current;
+    var options;
+    if (viewMode === "music") {
+      options = MUSIC_FORMATS.map(function (f) { return { value: f, label: f }; });
+      sel.setAttribute("aria-label", "Filter by format");
+    } else {
+      var genres = Array.from(new Set(books.map(function (b) { return b.genre; }).filter(Boolean))).sort();
+      options = genres.map(function (g) { return { value: g, label: g }; });
+      sel.setAttribute("aria-label", "Filter by genre");
+    }
+    sel.innerHTML = '<option value="">' + (viewMode === "music" ? "All formats" : "All genres") + "</option>" +
+      options.map(function (o) { return '<option value="' + escapeHtml(o.value) + '">' + escapeHtml(o.label) + "</option>"; }).join("");
+    if (options.some(function (o) { return o.value === current; })) sel.value = current;
   }
 
-  function matchesFilters(book, query, genre) {
+  function matchesBookFilters(book, query, genre) {
     if (genre && book.genre !== genre) return false;
     if (!query) return true;
     var q = query.toLowerCase();
@@ -373,12 +385,23 @@
       return f && f.toLowerCase().indexOf(q) !== -1;
     });
   }
+  function matchesAlbumFilters(album, query, format) {
+    if (format && album.format !== format) return false;
+    if (!query) return true;
+    var q = query.toLowerCase();
+    var hay = [album.title, album.artist, album.genre, album.format, (album.tracks || []).join(" ")];
+    return hay.some(function (f) { return f && f.toLowerCase().indexOf(q) !== -1; });
+  }
 
   function renderAll() {
-    populateGenreFilter();
+    populateFilterSelect();
+    renderBooks();
+  }
+
+  function renderBooks() {
     var query = document.getElementById("searchInput").value.trim();
     var genre = document.getElementById("genreFilter").value;
-    var filtered = books.filter(function (b) { return matchesFilters(b, query, genre); });
+    var filtered = books.filter(function (b) { return matchesBookFilters(b, query, genre); });
     filtered.sort(function (a, b) { return (a.title || "").localeCompare(b.title || ""); });
 
     var grid = document.getElementById("grid");
@@ -394,7 +417,6 @@
       grid.innerHTML = '<div class="empty-state"><h3>No matches</h3><p>Try a different search or clear the genre filter.</p></div>';
       return;
     }
-
     countEl.textContent = filtered.length + " of " + books.length + (books.length === 1 ? " book" : " books") + " shown";
 
     grid.innerHTML = filtered.map(function (b, i) {
@@ -416,15 +438,13 @@
             '<p class="author">' + escapeHtml(b.author || "Unknown author") + "</p>" +
             '<div class="meta-row"><span class="genre-tag">' + escapeHtml(b.genre || "Uncategorized") + "</span></div>" +
           "</div>" +
+          (b.quantity > 1 ? '<span class="qty-badge mono" title="' + b.quantity + ' copies">' + b.quantity + "</span>" : "") +
         "</article>"
       );
     }).join("");
 
     Array.prototype.forEach.call(grid.querySelectorAll(".edit-btn"), function (btn) {
-      btn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        openEditForm(btn.getAttribute("data-id"));
-      });
+      btn.addEventListener("click", function (e) { e.stopPropagation(); openEditForm(btn.getAttribute("data-id")); });
     });
     Array.prototype.forEach.call(grid.querySelectorAll(".del-btn"), function (btn) {
       btn.addEventListener("click", function (e) {
@@ -450,7 +470,14 @@
     });
   }
 
-  /* ---------------- book info popup (click a card) ---------------- */
+  function formatShort(f) {
+    if (!f) return "—";
+    if (f === "Vinyl") return "VINYL";
+    if (f === "Cassette") return "TAPE";
+    if (f === "Digital") return "DIGITAL";
+    return f.toUpperCase();
+  }
+
   function renderBookInfoModal(id) {
     var b = books.find(function (x) { return x.id === id; });
     if (!b) return;
@@ -472,6 +499,12 @@
             '<span class="genre-tag">' + escapeHtml(b.genre || "Uncategorized") + "</span>" +
             (b.isbn ? '<span class="mono view-isbn">ISBN ' + escapeHtml(b.isbn) + "</span>" : "") +
           "</div>" +
+          '<div class="qty-row">' +
+            '<span class="mono qty-label">Copies:</span>' +
+            '<button type="button" class="qty-btn" id="qtyMinus" aria-label="One fewer copy">−</button>' +
+            '<span class="mono qty-val" id="qtyVal">' + (b.quantity || 1) + "</span>" +
+            '<button type="button" class="qty-btn" id="qtyPlus" aria-label="One more copy">+</button>' +
+          "</div>" +
           (addedStr ? '<p class="view-added">Added ' + addedStr + "</p>" : "") +
           '<div class="form-actions">' +
             '<button type="button" class="btn btn-danger" id="viewDeleteBtn">Remove</button>' +
@@ -481,7 +514,6 @@
         "</div>" +
       "</div>"
     );
-
     document.getElementById("viewCloseBtn").addEventListener("click", closeModal);
     document.getElementById("viewEditBtn").addEventListener("click", function () { openEditForm(b.id); });
     document.getElementById("viewDeleteBtn").addEventListener("click", function () {
@@ -491,17 +523,28 @@
         closeModal();
       }
     });
+    function adjustQty(delta) {
+      var nb = books.find(function (x) { return x.id === b.id; });
+      if (!nb) return;
+      nb.quantity = Math.max(1, (nb.quantity || 1) + delta);
+      persistBook(nb);
+      renderBookInfoModal(b.id);
+    }
+    document.getElementById("qtyMinus").addEventListener("click", function () { adjustQty(-1); });
+    document.getElementById("qtyPlus").addEventListener("click", function () { adjustQty(1); });
   }
-
-  document.getElementById("searchInput").addEventListener("input", renderAll);
-  document.getElementById("genreFilter").addEventListener("change", renderAll);
 
   /* ---------------- modal shell ---------------- */
   var overlay = document.getElementById("overlay");
   var modalBody = document.getElementById("modalBody");
   var activeStream = null;
+  var scannerTarget = "books";
 
   function stopScanner() {
+    if (window._catalogZxingReader) {
+      try { window._catalogZxingReader.reset(); } catch (e) {}
+      window._catalogZxingReader = null;
+    }
     if (activeStream) {
       activeStream.getTracks().forEach(function (t) { t.stop(); });
       activeStream = null;
@@ -514,6 +557,7 @@
     overlay.hidden = true;
     modalBody.innerHTML = "";
     currentEditId = null;
+    currentEditAlbumId = null;
   }
   document.getElementById("modalClose").addEventListener("click", closeModal);
   overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(); });
@@ -526,13 +570,15 @@
 
   document.getElementById("openCreate").addEventListener("click", function () {
     currentEditId = null;
+    currentEditAlbumId = null;
     renderOptionScreen();
   });
+  document.getElementById("searchInput").addEventListener("input", renderAll);
+  document.getElementById("genreFilter").addEventListener("change", renderAll);
 
+  /* ---------------- books: add flow ---------------- */
   function renderOptionScreen() {
     stopScanner();
-    var barcodeDisabled = false; // camera availability checked at click time
-    var lookupDisabled = false; // live lookup via Open Library
     openModal(
       '<h2 id="modalTitle">Add a book</h2>' +
       '<p class="modal-sub">Choose how you\'d like to bring in the details.</p>' +
@@ -545,15 +591,15 @@
           '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><path d="M3 4v12M6 4v12M8.5 4v12M11 4v12M13 4v12M16 4v12" stroke="currentColor" stroke-width="1.3"/></svg></span>' +
           '<span><strong>Scan the barcode</strong><span>Use your camera, then check the details it finds.</span></span>' +
         "</button>" +
-        '<button class="option-tile" id="optLookup" ' + (lookupDisabled ? "disabled" : "") + '>' +
+        '<button class="option-tile" id="optLookup">' +
           '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>' +
-          '<span><strong>Search by title, author, or ISBN</strong><span>' + (lookupDisabled ? "Not available in this session." : "Type what you know and fill in the rest.") + '</span></span>' +
+          '<span><strong>Search by title, author, or ISBN</strong><span>Type what you know and fill in the rest.</span></span>' +
         "</button>" +
       "</div>"
     );
     document.getElementById("optScratch").addEventListener("click", function () { renderScratchForm(null); });
-    document.getElementById("optBarcode").addEventListener("click", renderBarcodeScreen);
-    if (!lookupDisabled) document.getElementById("optLookup").addEventListener("click", renderLookupScreen);
+    document.getElementById("optBarcode").addEventListener("click", function () { scannerTarget = "books"; renderBarcodeScreen(); });
+    document.getElementById("optLookup").addEventListener("click", renderLookupScreen);
   }
 
   function openEditForm(id) {
@@ -563,7 +609,6 @@
     renderScratchForm(b);
   }
 
-  /* ---------------- form: enter manually / edit / review ---------------- */
   function renderScratchForm(prefill, opts) {
     opts = opts || {};
     var isEdit = !!(prefill && prefill.id);
@@ -621,9 +666,26 @@
         errEl.style.display = "block";
         return;
       }
+      // Duplicate ISBN -> offer to bump the existing book's quantity.
+      if (!isEdit && isb) {
+        var norm = isb.replace(/[-\s]/g, "");
+        var dupe = books.find(function (x) {
+          return norm && (x.isbn || "").replace(/[-\s]/g, "") === norm;
+        });
+        if (dupe) {
+          if (confirm('One of this book already exists ("' + dupe.title + '"). Would you like me to up the quantity?')) {
+            dupe.quantity = (dupe.quantity || 1) + 1;
+            persistBook(dupe);
+            showToast('"' + dupe.title + '" — quantity is now ' + dupe.quantity + ".");
+          }
+          closeModal();
+          return;
+        }
+      }
       var book = {
         id: isEdit ? prefill.id : uid(),
         title: t, author: a, genre: g, isbn: isb,
+        quantity: (prefill && prefill.quantity) || 1,
         addedAt: (prefill && prefill.addedAt) || new Date().toISOString()
       };
       persistBook(book);
@@ -632,7 +694,7 @@
     });
   }
 
-  /* ------------- lookup (title / author / isbn -> Open Library) ------------- */
+  /* ---------------- books: Open Library lookup ---------------- */
   function renderLookupScreen() {
     openModal(
       '<button class="back-link" id="backBtn">‹ Back</button>' +
@@ -667,12 +729,6 @@
     var looksLikeIsbn = /^(\d{9}[\dXx]|\d{13})$/.test(cleanIsbn);
     var scratchPrefill = { title: looksLikeIsbn ? "" : query, isbn: looksLikeIsbn ? cleanIsbn : "" };
 
-    async function fetchJson(url) {
-      var res = await fetch(url);
-      if (!res.ok) throw new Error("http " + res.status);
-      return res.json();
-    }
-
     function genreFromSubjects(subjects) {
       if (!subjects || !subjects.length) return "";
       var lower = subjects.map(function (s) { return String(s).toLowerCase(); });
@@ -703,26 +759,22 @@
 
     try {
       var candidates = [];
-
       if (looksLikeIsbn) {
         try {
-          // Direct edition lookup by ISBN
           var ed = await fetchJson("https://openlibrary.org/isbn/" + encodeURIComponent(cleanIsbn) + ".json");
           var cand = { title: ed.title || "", author: "", genre: genreFromSubjects(ed.subjects), isbn: cleanIsbn };
           if (ed.authors && ed.authors.length && ed.authors[0].key) {
             try {
               var auth = await fetchJson("https://openlibrary.org" + ed.authors[0].key + ".json");
               cand.author = auth.name || "";
-            } catch (eAuth) { /* author optional */ }
+            } catch (eAuth) {}
           }
           candidates = [cand];
         } catch (eIsbn) {
-          // Edition not found — fall back to search-by-ISBN
           var sr = await fetchJson("https://openlibrary.org/search.json?isbn=" + encodeURIComponent(cleanIsbn) + "&fields=title,author_name,subject,isbn&limit=5");
           candidates = (sr.docs || []).map(docToCandidate).filter(function (c) { return c.title || c.author; });
         }
       } else {
-        // Title / author / free-text search
         var data = await fetchJson("https://openlibrary.org/search.json?q=" + encodeURIComponent(query) + "&fields=title,author_name,subject,isbn&limit=5");
         candidates = (data.docs || []).map(docToCandidate).filter(function (c) { return c.title || c.author; });
       }
@@ -733,7 +785,7 @@
           note: "Couldn't find that one in Open Library — no trouble, just fill in what you know below."
         });
       } else if (candidates.length === 1) {
-        renderReviewForm(candidates[0], backLabel, null);
+        renderReviewForm(candidates[0], backLabel);
       } else {
         renderCandidateScreen(candidates, query, backLabel);
       }
@@ -745,14 +797,12 @@
     }
   }
 
-  function renderReviewForm(candidate, backLabel, uncertainNote) {
+  function renderReviewForm(candidate, backLabel) {
     renderScratchForm(
       { title: candidate.title || "", author: candidate.author || "", genre: candidate.genre || "", isbn: candidate.isbn || "" },
       {
         backLabel: backLabel, onBack: renderOptionScreen, reviewMode: true,
-        note: uncertainNote
-          ? escapeHtml(uncertainNote) + " Have a look and adjust anything that's off."
-          : "Filled in live from Open Library — give it a quick check before saving."
+        note: "Filled in live from Open Library — give it a quick check before saving."
       }
     );
   }
@@ -808,14 +858,14 @@
     openModal(
       '<button class="back-link" id="backBtn">‹ Back</button>' +
       '<h2 id="modalTitle">Scan the barcode</h2>' +
-      '<p class="modal-sub">Line the barcode up in the frame. If your camera won\'t cooperate, you can always type the ISBN in below.</p>' +
+      '<p class="modal-sub">Line the barcode up in the frame. If your camera won\'t cooperate, you can always type the number in below.</p>' +
       '<div class="scan-wrap" id="scanWrap">' +
         '<video id="scanVideo" playsinline muted></video>' +
         '<div class="scan-frame"></div><div class="scan-line"></div>' +
       "</div>" +
       '<p class="status-line" id="scanStatus"><span class="spinner"></span> Starting camera…</p>' +
       '<div class="lookup-row">' +
-        '<input id="manualIsbn" type="text" placeholder="Or type the ISBN here">' +
+        '<input id="manualIsbn" type="text" placeholder="Or type the barcode here">' +
         '<button class="btn btn-ghost" id="manualIsbnGo">Use this</button>' +
       "</div>"
     );
@@ -829,24 +879,29 @@
     startScanner();
   }
 
+  function onBarcodeFound(value, statusEl) {
+    stopScanner();
+    statusEl.innerHTML = "Found " + escapeHtml(value) + " — looking it up…";
+    runLookup(value, "Scan the barcode");
+  }
+
   async function startScanner() {
     var statusEl = document.getElementById("scanStatus");
     var video = document.getElementById("scanVideo");
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      statusEl.innerHTML = "Camera access isn't available here — type the ISBN below instead.";
+      statusEl.innerHTML = "Camera access isn't available here — type the number below instead.";
       return;
     }
     try {
       activeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     } catch (e) {
-      statusEl.innerHTML = "Couldn't get to the camera (permission denied or unavailable) — type the ISBN below instead.";
+      statusEl.innerHTML = "Couldn't get to the camera (permission denied or unavailable) — type the number below instead.";
       return;
     }
     video.srcObject = activeStream;
     await video.play().catch(function () {});
     statusEl.innerHTML = '<span class="spinner"></span> Watching for a barcode…';
 
-    // Prefer the native BarcodeDetector API when present.
     if ("BarcodeDetector" in window) {
       try {
         var detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
@@ -854,19 +909,13 @@
           if (!activeStream) return;
           try {
             var codes = await detector.detect(video);
-            if (codes && codes.length) {
-              var value = codes[0].rawValue;
-              stopScanner();
-              statusEl.innerHTML = "Found " + escapeHtml(value) + " — looking it up…";
-              runLookup(value, "Scan the barcode");
-            }
-          } catch (e2) { /* keep trying */ }
+            if (codes && codes.length) onBarcodeFound(codes[0].rawValue, statusEl);
+          } catch (e2) {}
         }, 400);
         return;
-      } catch (e3) { /* fall through to zxing */ }
+      } catch (e3) {}
     }
 
-    // Fallback: ZXing loaded from cdnjs.
     try {
       var ZXing = await loadZXing();
       if (!ZXing || !activeStream) throw new Error("zxing unavailable");
@@ -874,255 +923,74 @@
       window._catalogZxingReader = reader;
       reader.decodeFromVideoElement(video, function (result, err) {
         if (result && activeStream) {
-          var value = result.getText();
-          reader.reset();
-          stopScanner();
-          statusEl.innerHTML = "Found " + escapeHtml(value) + " — looking it up…";
-          runLookup(value, "Scan the barcode");
+          try { reader.reset(); } catch (e) {}
+          onBarcodeFound(result.getText(), statusEl);
         }
       });
     } catch (e4) {
-      statusEl.innerHTML = "Barcode scanning isn't available in this browser — type the ISBN below instead.";
+      statusEl.innerHTML = "Barcode scanning isn't available in this browser — type the number below instead.";
     }
   }
 
-  var origStopScanner = stopScanner;
-  stopScanner = function () {
-    if (window._catalogZxingReader) {
-      try { window._catalogZxingReader.reset(); } catch (e) {}
-      window._catalogZxingReader = null;
-    }
-    origStopScanner();
-  };
-
-  /* ---------------- auth gate ---------------- */
-  var authGateEl = document.getElementById("authGate");
-  var appShellEl = document.getElementById("appShell");
-  var whoamiEl = document.getElementById("whoami");
-  var logoutBtn = document.getElementById("logoutBtn");
-
-  function setAuthMode(mode) {
-    authMode = mode;
-    document.getElementById("tabLogin").classList.toggle("active", mode === "login");
-    document.getElementById("tabLogin").setAttribute("aria-selected", mode === "login");
-    document.getElementById("tabSignup").classList.toggle("active", mode === "signup");
-    document.getElementById("tabSignup").setAttribute("aria-selected", mode === "signup");
-    document.getElementById("authSubmit").textContent = mode === "login" ? "Log in" : "Create account";
-    document.getElementById("authPass").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
-    document.getElementById("authError").style.display = "none";
-    document.getElementById("authStatus").textContent = "";
-  }
-
-  function wireAuthForm() {
-    document.getElementById("tabLogin").addEventListener("click", function () { setAuthMode("login"); });
-    document.getElementById("tabSignup").addEventListener("click", function () { setAuthMode("signup"); });
-
-    document.getElementById("authForm").addEventListener("submit", async function (e) {
-      e.preventDefault();
-      var username = document.getElementById("authUser").value.trim();
-      var password = document.getElementById("authPass").value;
-      var errEl = document.getElementById("authError");
-      var statusEl = document.getElementById("authStatus");
-      var submitBtn = document.getElementById("authSubmit");
-      errEl.style.display = "none";
-
-      if (!username || !password) return;
-      if (authThrottleHit()) { authThrottleNotice(); return; }
-      lastAuthAttemptAt = Date.now();
-      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
-
-      submitBtn.disabled = true;
-      statusEl.innerHTML = '<span class="spinner"></span> ' + (authMode === "login" ? "Logging in…" : "Creating your account…");
-
-      // If Supabase goes silent (stuck auth service), give up after 20s,
-      // re-enable the form, and say exactly what to do.
-      var wd = setTimeout(function () {
-        if (!authGateEl.hidden) {
-          submitBtn.disabled = false;
-          statusEl.textContent = "";
-          errEl.textContent = "Supabase never answered — its auth service is probably stuck. Restart the project (Dashboard → Settings → Infrastructure → Restart), wait a minute, then try again. Or use \"Skip for now\" meanwhile.";
-          errEl.style.display = "block";
-        }
-      }, 20000);
-
-      var email = usernameToEmail(username);
-      try {
-        var result;
-        async function attempt() {
-          if (authMode === "login") {
-            return db.auth.signInWithPassword({ email: email, password: password });
-          }
-          return db.auth.signUp({
-            email: email,
-            password: password,
-            options: { data: { username: username } }
-          });
-        }
-        result = await attempt();
-        // "Database error querying schema" from the auth service is often a
-        // stale GoTrue schema cache — one retry after a short wait clears it.
-        if (result.error && /schema/i.test(result.error.message || "")) {
-          statusEl.innerHTML = '<span class="spinner"></span> Retrying — Supabase was slow to respond…';
-          await new Promise(function (r) { setTimeout(r, 2500); });
-          result = await attempt();
-        }
-        if (result.error) throw result.error;
-
-        if (authMode === "signup" && !(result.data && result.data.session)) {
-          // Email confirmation is turned on in the Supabase project — no session yet.
-          statusEl.textContent = "Account created — check that this project allows sign-in without email confirmation, then log in.";
-          submitBtn.disabled = false;
-          return;
-        }
-        // NOTE: we deliberately do NOT rely on onAuthStateChange to open the
-        // app. In some environments (restricted storage, managed browsers,
-        // old webviews) that event never fires even though the server
-        // confirms the sign-in — the user ends up stuck on the login screen
-        // with a disabled button while the auth logs show success. If the
-        // response carries a session, open the app directly, right now.
-        clearTimeout(wd);
-        statusEl.textContent = "";
-        submitBtn.disabled = false;
-        if (result.data && result.data.session && result.data.session.user) {
-          showApp(result.data.session.user);
-        }
-      } catch (err) {
-        clearTimeout(wd);
-        submitBtn.disabled = false;
-        statusEl.textContent = "";
-        errEl.textContent = friendlyAuthError(err && err.message);
-        errEl.style.display = "block";
-      }
-    });
-
-    document.getElementById("googleBtn").addEventListener("click", async function () {
-      var errEl = document.getElementById("authError");
-      var statusEl = document.getElementById("authStatus");
-      var btn = this;
-      errEl.style.display = "none";
-      if (authThrottleHit()) { authThrottleNotice(); return; }
-      lastAuthAttemptAt = Date.now();
-      if (!db) { errEl.textContent = "Accounts aren't available right now."; errEl.style.display = "block"; return; }
-      btn.disabled = true;
-      statusEl.innerHTML = '<span class="spinner"></span> Redirecting to Google…';
-      var gwd = setTimeout(function () {
-        if (!authGateEl.hidden) {
-          btn.disabled = false;
-          statusEl.textContent = "";
-          errEl.textContent = "Supabase never answered — restart the project (Dashboard → Settings → Infrastructure → Restart) and try again.";
-          errEl.style.display = "block";
-        }
-      }, 20000);
-      try {
-        // Sends the browser to Google's consent screen; Supabase redirects
-        // back here with the session, and onAuthStateChange opens the app.
-        var res = await db.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo: window.location.origin + window.location.pathname }
-        });
-        if (res.error) throw res.error;
-        // If we get here, the popup/redirect didn't kick off — rare, but recover.
-        clearTimeout(gwd);
-        statusEl.textContent = "";
-      } catch (err) {
-        clearTimeout(gwd);
-        btn.disabled = false;
-        statusEl.textContent = "";
-        errEl.textContent = friendlyAuthError(err && err.message);
-        errEl.style.display = "block";
-      }
-    });
-
-    // Lets people use the app while the Supabase project is being fixed —
-    // same local-only mode the app falls back to when no project is set up.
-    document.getElementById("skipAuthBtn").addEventListener("click", function () {
-      currentUser = null;
-      authGateEl.hidden = true;
-      appShellEl.hidden = false;
-      logoutBtn.hidden = true;
-      initLocalOnlyMode();
-      renderAll();
-    });
-
-    logoutBtn.addEventListener("click", async function () {
-      if (db && db.auth) { try { await db.auth.signOut(); } catch (e) {} }
-    });
-  }
-
-  function showAuthGate() {
-    authGateEl.hidden = false;
-    appShellEl.hidden = true;
-    logoutBtn.hidden = true;
-    whoamiEl.textContent = "";
-    document.getElementById("authForm").reset();
-    document.getElementById("authSubmit").disabled = false;
-    document.getElementById("authStatus").textContent = "";
-    setAuthMode("login");
-    document.getElementById("authUser").focus();
-  }
-
+  /* ---------------- session / boot ---------------- */
   function showApp(user) {
     currentUser = { id: user.id, username: emailToUsername(user.email, user.user_metadata && user.user_metadata.username) };
-    authGateEl.hidden = true;
-    appShellEl.hidden = false;
+    setBootStatus("");
+    document.getElementById("whoami").textContent = currentUser.username;
+    var logoutBtn = document.getElementById("logoutBtn");
     logoutBtn.hidden = false;
-    whoamiEl.textContent = currentUser.username;
+    if (!logoutBtn._wired) {
+      logoutBtn._wired = true;
+      logoutBtn.addEventListener("click", async function () {
+        if (db && db.auth) { try { await db.auth.signOut(); } catch (e) {} }
+        window.location.href = "login.html";
+      });
+    }
     usingLocalFallback = false;
     books = [];
+    albums = [];
     renderAll();
-    loadBooksForUser(currentUser.id);
+    loadDataForUser(currentUser.id);
   }
 
-  function handleLoggedOut() {
-    if (booksChannel && db) { try { db.removeChannel(booksChannel); } catch (e) {} booksChannel = null; }
-    currentUser = null;
-    books = [];
-    showAuthGate();
+  function showLocalOnly() {
+    sessionStorage.setItem("catalogLocalOnly", "1");
+    setBootStatus("");
+    document.getElementById("whoami").textContent = "";
+    document.getElementById("logoutBtn").hidden = true;
+    initLocalOnlyMode();
   }
 
-  /* ---------------- boot ---------------- */
-  async function boot() {
-    var connected = await connectSupabase();
-    if (!connected) {
-      // No Supabase project configured — fall back to a single
-      // unauthenticated, browser-local shelf (no accounts possible).
-      authGateEl.hidden = true;
-      appShellEl.hidden = false;
-      logoutBtn.hidden = true;
-      initLocalOnlyMode();
-      renderAll();
-      return;
-    }
-
-    wireAuthForm();
-    db.auth.onAuthStateChange(function (_event, session) {
-      if (session && session.user) showApp(session.user);
-      else handleLoggedOut();
-    });
-
-    try {
-      var sessionRes = await db.auth.getSession();
-      var session = sessionRes && sessionRes.data && sessionRes.data.session;
-      if (session && session.user) showApp(session.user);
-      else showAuthGate();
-    } catch (e) {
-      showAuthGate();
-    }
-
-    // Safety net: poll the stored session for the first 30 seconds after
-    // load. Covers the case where a sign-in completes but every event
-    // channel to this page is dropped — the gate would otherwise sit
-    // there forever despite a valid session.
-    var sessionPolls = 0;
-    var sessionPoll = setInterval(async function () {
-      sessionPolls++;
-      if (sessionPolls > 10 || !authGateEl.hidden) { clearInterval(sessionPoll); return; }
+  async function getSessionWithRetries(tries) {
+    for (var i = 0; i < tries; i++) {
       try {
         var r = await db.auth.getSession();
         var s = r && r.data && r.data.session;
-        if (s && s.user) { clearInterval(sessionPoll); showApp(s.user); }
-      } catch (e) { /* keep polling until the window ends */ }
-    }, 3000);
+        if (s && s.user) return s;
+      } catch (e) {}
+      if (i < tries - 1) await new Promise(function (res) { setTimeout(res, 1200); });
+    }
+    return null;
+  }
+
+  async function boot() {
+    if (sessionStorage.getItem("catalogLocalOnly")) {
+      showLocalOnly();
+      return;
+    }
+    try {
+      await connectSupabase();
+      setBootStatus("Checking for an existing session…");
+      var session = await getSessionWithRetries(4);
+      if (session && session.user) {
+        showApp(session.user);
+        return;
+      }
+      setBootStatus("");
+      window.location.href = "login.html";
+    } catch (e) {
+      setBootStatus("Couldn't reach the account service: " + ((e && e.message) || "unknown") + " — use \u201cSkip for now\u201d on the login page to catalog in this browser.");
+    }
   }
   boot();
 })();

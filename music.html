@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Catalog — Music</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="music.css?v=1">
+</head>
+<body>
+<noscript>
+  <div class="noscript-note">The music shelf needs JavaScript — that's what remembers your albums and keeps them synced. Please enable it and reload.</div>
+</noscript>
+
+<div class="page">
+  <header class="masthead">
+    <div>
+      <h1 class="masthead-title">The Catalog</h1>
+      <p class="masthead-sub">what's spinning at home — CDs, records, and the songs on them</p>
+      <div class="shelf-tabs" role="tablist" aria-label="Catalogue sections">
+        <a class="shelf-tab" href="index.html" role="tab" aria-selected="false">Books</a>
+        <a class="shelf-tab active" href="music.html" role="tab" aria-selected="true">Music</a>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="mono whoami" id="whoami"></span>
+      <a class="btn btn-ghost" id="loginLink" href="login.html" hidden>Log in</a>
+      <button class="btn btn-ghost" id="logoutBtn" hidden>Log out</button>
+      <button class="new-book-btn" id="openCreate">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="label">New album</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="search-row">
+    <div class="search-field">
+      <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input type="text" id="searchInput" placeholder="Search by album, artist, or song…" aria-label="Search albums and songs">
+    </div>
+    <select id="formatFilter" class="genre-filter" aria-label="Filter by format">
+      <option value="">All formats</option>
+    </select>
+  </div>
+  <p class="shelf-count" id="shelfCount"></p>
+
+  <div class="grid" id="grid"></div>
+
+  <p class="sync-note" id="syncNote"></p>
+</div>
+
+<!-- ============ ADD / EDIT MODAL ============ -->
+<div class="overlay" id="overlay" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-close" id="modalClose" aria-label="Close">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="music.js?v=1"></script>
+</body>
+</html>
