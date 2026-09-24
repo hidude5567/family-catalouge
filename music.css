@@ -609,8 +609,8 @@ select.genre-filter {
 .auth-card .status-line { justify-content: center; }
 
 /* ================= MUSIC THEME — late-night vinyl =================
-   Same bones as the books page, different mood: near-black room,
-   amber marquee lights, copper accents. */
+   Same structure as the Books page, but the room is dark: near-black
+   paper, amber marquee glow, copper accents. */
 :root,
 :root:not([data-theme="light"]),
 :root[data-theme="dark"] {
@@ -629,8 +629,7 @@ select.genre-filter {
   --focus: #E8C489;
 }
 
-/* masthead gets a marquee feel on the music page */
-.masthead-title { letter-spacing: 0.02em; }
+/* marquee subtitle glow */
 .masthead-sub { color: var(--brass); opacity: 0.85; }
 
 /* tab links */

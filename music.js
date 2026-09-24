@@ -341,21 +341,7 @@
   /* ---------------- modal shell ---------------- */
   var overlay = document.getElementById("overlay");
   var modalBody = document.getElementById("modalBody");
-  var activeStream = null;
-
-  function stopScanner() {
-    if (window._catalogZxingReader) {
-      try { window._catalogZxingReader.reset(); } catch (e) {}
-      window._catalogZxingReader = null;
-    }
-    if (activeStream) {
-      activeStream.getTracks().forEach(function (t) { t.stop(); });
-      activeStream = null;
-    }
-    if (window._catalogScanTimer) { clearInterval(window._catalogScanTimer); window._catalogScanTimer = null; }
-  }
   function closeModal() {
-    stopScanner();
     overlay.hidden = true;
     modalBody.innerHTML = "";
     currentEditAlbumId = null;
@@ -377,7 +363,6 @@
 
   /* ---------------- add flow ---------------- */
   function renderAlbumOptionScreen() {
-    stopScanner();
     openModal(
       '<h2 id="modalTitle">Add an album</h2>' +
       '<p class="modal-sub">Choose how you\'d like to bring in the details.</p>' +
@@ -386,10 +371,6 @@
           '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.4"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" stroke-width="1.4"/></svg></span>' +
           '<span><strong>Enter it myself</strong><span>Type in the album, artist, and song list by hand.</span></span>' +
         "</button>" +
-        '<button class="option-tile" id="optBarcode">' +
-          '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><path d="M3 4v12M6 4v12M8.5 4v12M11 4v12M13 4v12M16 4v12" stroke="currentColor" stroke-width="1.3"/></svg></span>' +
-          '<span><strong>Scan the barcode</strong><span>Most CDs have a UPC on the back — scan it and I\'ll find the album.</span></span>' +
-        "</button>" +
         '<button class="option-tile" id="optLookup">' +
           '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>' +
           '<span><strong>Search by album, artist, or UPC</strong><span>Looked up live in MusicBrainz — track list included.</span></span>' +
@@ -397,7 +378,6 @@
       "</div>"
     );
     document.getElementById("optScratch").addEventListener("click", function () { renderAlbumForm(null); });
-    document.getElementById("optBarcode").addEventListener("click", renderBarcodeScreen);
     document.getElementById("optLookup").addEventListener("click", renderMusicLookupScreen);
   }
 
@@ -646,100 +626,6 @@
         renderAlbumReview(candidates[Number(btn.getAttribute("data-idx"))], backLabel);
       });
     });
-  }
-
-  /* ---------------- barcode scanning ---------------- */
-  var zxingLoadPromise = null;
-  function loadZXing() {
-    if (window.ZXing) return Promise.resolve(window.ZXing);
-    if (zxingLoadPromise) return zxingLoadPromise;
-    zxingLoadPromise = new Promise(function (resolve, reject) {
-      var s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/zxing-library/0.20.0/index.min.js";
-      s.onload = function () { resolve(window.ZXing || null); };
-      s.onerror = function () { reject(new Error("zxing load failed")); };
-      document.head.appendChild(s);
-    });
-    return zxingLoadPromise;
-  }
-
-  function renderBarcodeScreen() {
-    stopScanner();
-    openModal(
-      '<button class="back-link" id="backBtn">‹ Back</button>' +
-      '<h2 id="modalTitle">Scan the barcode</h2>' +
-      '<p class="modal-sub">Line the barcode up in the frame. If your camera won\'t cooperate, you can always type the number in below.</p>' +
-      '<div class="scan-wrap" id="scanWrap">' +
-        '<video id="scanVideo" playsinline muted></video>' +
-        '<div class="scan-frame"></div><div class="scan-line"></div>' +
-      "</div>" +
-      '<p class="status-line" id="scanStatus"><span class="spinner"></span> Starting camera…</p>' +
-      '<div class="lookup-row">' +
-        '<input id="manualIsbn" type="text" placeholder="Or type the barcode here">' +
-        '<button class="btn btn-ghost" id="manualIsbnGo">Use this</button>' +
-      "</div>"
-    );
-    document.getElementById("backBtn").addEventListener("click", function () { stopScanner(); renderAlbumOptionScreen(); });
-    document.getElementById("manualIsbnGo").addEventListener("click", function () {
-      var v = document.getElementById("manualIsbn").value.trim();
-      if (!v) return;
-      stopScanner();
-      runMusicLookup(v, "Scan the barcode");
-    });
-    startScanner();
-  }
-
-  async function startScanner() {
-    var statusEl = document.getElementById("scanStatus");
-    var video = document.getElementById("scanVideo");
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      statusEl.innerHTML = "Camera access isn't available here — type the number below instead.";
-      return;
-    }
-    try {
-      activeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    } catch (e) {
-      statusEl.innerHTML = "Couldn't get to the camera (permission denied or unavailable) — type the number below instead.";
-      return;
-    }
-    video.srcObject = activeStream;
-    await video.play().catch(function () {});
-    statusEl.innerHTML = '<span class="spinner"></span> Watching for a barcode…';
-
-    if ("BarcodeDetector" in window) {
-      try {
-        var detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
-        window._catalogScanTimer = setInterval(async function () {
-          if (!activeStream) return;
-          try {
-            var codes = await detector.detect(video);
-            if (codes && codes.length) onBarcodeFound(codes[0].rawValue, statusEl);
-          } catch (e2) {}
-        }, 400);
-        return;
-      } catch (e3) {}
-    }
-
-    try {
-      var ZXing = await loadZXing();
-      if (!ZXing || !activeStream) throw new Error("zxing unavailable");
-      var reader = new ZXing.BrowserMultiFormatReader();
-      window._catalogZxingReader = reader;
-      reader.decodeFromVideoElement(video, function (result, err) {
-        if (result && activeStream) {
-          try { reader.reset(); } catch (e) {}
-          onBarcodeFound(result.getText(), statusEl);
-        }
-      });
-    } catch (e4) {
-      statusEl.innerHTML = "Barcode scanning isn't available in this browser — type the number below instead.";
-    }
-  }
-
-  function onBarcodeFound(value, statusEl) {
-    stopScanner();
-    statusEl.innerHTML = "Found " + escapeHtml(value) + " — looking it up…";
-    runMusicLookup(value, "Scan the barcode");
   }
 
   /* ---------------- session / boot ---------------- */
