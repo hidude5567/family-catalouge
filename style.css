@@ -607,7 +607,37 @@ select.genre-filter {
   margin: 1.1rem 0 0;
 }
 .auth-card .status-line { justify-content: center; }
-/* ---------- Google sign-in ---------- */
+
+/* ---------- on-page boot / error status banner ---------- */
+.boot-status {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.82rem;
+  padding: 0.55rem 1rem;
+  border-radius: 4px;
+  box-shadow: 0 8px 20px var(--shadow);
+  max-width: 92vw;
+}
+.boot-status[hidden] { display: none; }
+.boot-status-error { background: var(--burgundy); color: var(--paper-raised); }
+
+.noscript-note {
+  margin: 1rem auto;
+  max-width: 40rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--burgundy);
+  border-radius: 4px;
+  color: var(--burgundy);
+  font-size: 0.95rem;
+}
+
+/* ---------- Google sign-in (login page) ---------- */
 .auth-divider {
   display: flex;
   align-items: center;
@@ -634,7 +664,6 @@ select.genre-filter {
 }
 .btn-google:hover { border-color: var(--ink-soft); }
 .btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
-
 .auth-skip {
   background: none;
   border: none;
@@ -647,39 +676,79 @@ select.genre-filter {
 }
 .auth-skip:hover { color: var(--ink); }
 
-/* on-page error banner (for browsers without easy devtools access) */
-#jsErrorBanner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  background: #b3261e;
-  color: #fff;
-  padding: 0.7rem 1rem;
+/* ---------- Books / Music section tabs ---------- */
+.shelf-tabs {
+  display: flex;
+  gap: 1.1rem;
+  margin-top: 0.9rem;
+}
+.shelf-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
   font-family: 'Courier Prime', monospace;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  padding: 0.2rem 0.1rem;
+}
+.shelf-tab:hover { color: var(--ink); }
+.shelf-tab.active {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--forest);
 }
 
-/* always-visible boot/connection status line (top of page) */
-.boot-status {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  background: var(--forest-dark);
+/* ---------- album covers are square ---------- */
+.album-cover { aspect-ratio: 1 / 1; }
+
+/* ---------- track list in the album popup ---------- */
+.track-list {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.track-list li { margin-bottom: 0.12rem; }
+
+/* ---------- quantity badge + stepper ---------- */
+.qty-badge {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--spine, var(--forest));
   color: var(--paper-raised);
-  padding: 0.6rem 1rem;
   font-family: 'Courier Prime', monospace;
   font-size: 0.78rem;
-  line-height: 1.4;
-  text-align: center;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px var(--shadow-soft);
+  z-index: 2;
 }
-.boot-status-error {
-  background: #b3261e;
-  cursor: pointer;
+.qty-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.2rem 0 0.8rem;
 }
+.qty-label { font-size: 0.8rem; color: var(--ink-soft); }
+.qty-val { font-size: 0.95rem; font-weight: 700; min-width: 1.4rem; text-align: center; }
+.qty-btn {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  border: 1px solid var(--paper-line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0;
+}
+.qty-btn:hover { border-color: var(--forest); }
