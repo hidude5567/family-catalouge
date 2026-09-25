@@ -475,6 +475,9 @@
           '<datalist id="musicGenreOptions">' + MUSIC_GENRE_SUGGESTIONS.map(function (g) { return '<option value="' + g + '">'; }).join("") + "</datalist>" +
         "</div>" +
         '<div class="field"><label for="aTracks">Songs (one per line)</label><textarea id="aTracks" rows="8" placeholder="1. Song One&#10;2. Song Two&#10;3. Song Three">' + escapeHtml(tracks) + "</textarea></div>" +
+        '<div class="field"><label for="aCover">Cover image URL</label><input id="aCover" type="text" value="' + escapeHtml((prefill && prefill.cover) || "") + '" placeholder="https://… (auto-filled from Discogs; paste any image link)">' +
+          '<div class="field-hint">Leave blank to use the record-icon placeholder.</div>' +
+        "</div>" +
         '<div class="field-error" id="formError" style="display:none;"></div>' +
         '<div class="form-actions">' +
           (isEdit ? '<button type="button" class="btn btn-danger" id="deleteBtn">Remove</button>' : "") +
@@ -508,6 +511,7 @@
       var yr = parseInt(document.getElementById("aYear").value, 10) || null;
       var g = document.getElementById("aGenre").value.trim();
       var trackList = document.getElementById("aTracks").value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+      var coverUrl = document.getElementById("aCover").value.trim();
       var errEl = document.getElementById("formError");
       if (!t || !ar) {
         errEl.textContent = "Album title and artist are needed before this goes on the music shelf.";
@@ -519,7 +523,7 @@
         title: t, artist: ar, format: f, year: yr, genre: g,
         tracks: trackList,
         mbid: (prefill && prefill.mbid) || "",
-        cover: (prefill && prefill.cover) || "",
+        cover: coverUrl,
         addedAt: (prefill && prefill.addedAt) || new Date().toISOString()
       };
       persistAlbum(album);
