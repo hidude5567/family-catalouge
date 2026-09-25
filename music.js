@@ -606,9 +606,19 @@
         renderMusicCandidateScreen(candidates, query, backLabel);
       }
     } catch (e) {
-      var note = !DISCOGS_PROXY && /token/i.test(String(e && e.message))
-        ? "Discogs rejected the token — check it at the top of music.js (discogs.com → Settings → Developers)."
-        : "The lookup didn't go through (offline, or Discogs is unreachable) — fill in the details by hand.";
+      var raw = String((e && e.message) || "unknown");
+      var note;
+      if (DISCOGS_PROXY && /proxy http 4/i.test(raw)) {
+        note = "The Discogs proxy isn't there yet (" + raw + "). In Supabase: Edge Functions → create a function named exactly discogs-proxy → paste in discogs-proxy.ts → add the DISCOGS_TOKEN secret → deploy.";
+      } else if (/proxy http 500|token not configured/i.test(raw)) {
+        note = "The proxy is deployed but its DISCOGS_TOKEN secret is missing or wrong — add it in the function's Secrets (discogs.com → Settings → Developers → Generate token).";
+      } else if (DISCOGS_PROXY && /Failed to fetch|network|timeout/i.test(raw)) {
+        note = "Your browser couldn't reach the proxy at all (" + raw + "). Either it isn't deployed yet, or this network is blocking it (school filters block unknown domains — try a phone hotspot to confirm).";
+      } else if (/token/i.test(raw)) {
+        note = "Discogs rejected the token — check the DISCOGS_TOKEN secret or the token at the top of music.js.";
+      } else {
+        note = "The lookup didn't go through (" + raw + ") — fill in the details by hand.";
+      }
       renderAlbumForm({ title: scratchPrefill.title || "", artist: "", format: "CD", tracks: [] }, {
         backLabel: backLabel, onBack: renderAlbumOptionScreen, note: note
       });
