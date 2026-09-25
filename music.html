@@ -3,28 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>The Catalog — a running record of what's on the shelf</title>
+<title>The Catalog — Music</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="music.css?v=14">
 <base target="_blank">
 </head>
 <body>
-<!-- auth.js on login.html redirects here; if no valid session exists, app.js sends you back to login.html -->
 <noscript>
-  <div class="noscript-note">This catalog needs JavaScript — that's what remembers your shelf and keeps it synced. Please enable it and reload.</div>
+  <div class="noscript-note">The music shelf needs JavaScript — that's what remembers your albums and keeps them synced. Please enable it and reload.</div>
 </noscript>
-<p class="boot-status" id="bootStatus" hidden></p>
 
 <div class="page">
   <header class="masthead">
     <div>
       <h1 class="masthead-title">The Catalog</h1>
-      <p class="masthead-sub">a running record of what's on the shelf</p>
+      <p class="masthead-sub">what's spinning at home — CDs, records, and the songs on them</p>
+      <p class="build-tag mono">build v14</p>
       <div class="shelf-tabs" role="tablist" aria-label="Catalogue sections">
-        <button type="button" class="shelf-tab active" data-goto="index.html" role="tab" aria-selected="true">Books</button>
-        <button type="button" class="shelf-tab" data-goto="music.html" role="tab" aria-selected="false">Music</button>
+        <button type="button" class="shelf-tab" data-goto="index.html" role="tab" aria-selected="false">Books</button>
+        <button type="button" class="shelf-tab active" data-goto="music.html" role="tab" aria-selected="true">Music</button>
       </div>
       <script>
       // Same-tab navigation, immune to injected <base> tags or extensions.
@@ -35,10 +34,11 @@
     </div>
     <div class="header-actions">
       <span class="mono whoami" id="whoami"></span>
+      <a class="btn btn-ghost" id="loginLink" href="login.html" hidden>Log in</a>
       <button class="btn btn-ghost" id="logoutBtn" hidden>Log out</button>
       <button class="new-book-btn" id="openCreate">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="label">New book</span>
+        <span class="label">New album</span>
       </button>
     </div>
   </header>
@@ -46,10 +46,10 @@
   <div class="search-row">
     <div class="search-field">
       <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <input type="text" id="searchInput" placeholder="Search by title, author, or genre…" aria-label="Search books">
+      <input type="text" id="searchInput" placeholder="Search by album, artist, or song…" aria-label="Search albums and songs">
     </div>
-    <select id="genreFilter" class="genre-filter" aria-label="Filter by genre">
-      <option value="">All genres</option>
+    <select id="formatFilter" class="genre-filter" aria-label="Filter by format">
+      <option value="">All formats</option>
     </select>
   </div>
   <p class="shelf-count" id="shelfCount"></p>
@@ -69,6 +69,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="app.js?v=4"></script>
+<script src="music.js?v=14"></script>
 </body>
 </html>
