@@ -952,9 +952,70 @@
   }
 
   /* ---------------- session / boot ---------------- */
+
+  /* ---------------- update banners (same system as the music page) ---------------- */
+  var bannerTimer = null;
+
+  function msgSeenKey() {
+    return "catalog-msg-seen-" + (currentUser ? currentUser.id : "anon");
+  }
+  function getLastSeen() {
+    try { return localStorage.getItem(msgSeenKey()); } catch (e) { return null; }
+  }
+  function setLastSeen(ts) {
+    try { localStorage.setItem(msgSeenKey(), ts); } catch (e) {}
+  }
+
+  function showBanner(m, extraCount) {
+    var old = document.getElementById("updateBanner");
+    if (old) old.remove();
+    var el = document.createElement("div");
+    el.id = "updateBanner";
+    el.className = "update-banner";
+    el.setAttribute("role", "alert");
+    el.innerHTML =
+      '<div class="banner-text"><span class="mono banner-who">' + escapeHtml(m.from_username || "manager") + "</span>" +
+      escapeHtml(m.body) +
+      (extraCount > 0 ? '<span class="mono banner-more">+' + extraCount + " more</span>" : "") + "</div>" +
+      '<button class="btn btn-primary banner-dismiss" type="button">Got it</button>';
+    document.body.appendChild(el);
+    el.querySelector(".banner-dismiss").addEventListener("click", function () {
+      setLastSeen(m.created_at);
+      el.remove();
+    });
+  }
+
+  async function refreshBanners() {
+    if (!currentUser || !db) return;
+    var rows;
+    try {
+      var r = await db.from("messages").select("*").order("created_at", { ascending: false }).limit(50);
+      if (r.error) return;
+      rows = r.data || [];
+    } catch (e) { return; }
+    if (!rows.length) return;
+    var last = getLastSeen();
+    if (last === null) {
+      setLastSeen(rows[0].created_at); // first visit: baseline, no retroactive banners
+      return;
+    }
+    var unseen = rows.filter(function (m) {
+      if (m.from_user === currentUser.id) return false;
+      return m.created_at > last;
+    });
+    if (unseen.length) showBanner(unseen[0], unseen.length - 1);
+  }
+
+  function startBannerPolling() {
+    if (bannerTimer) clearInterval(bannerTimer);
+    bannerTimer = setInterval(function () { refreshBanners(); }, 60000);
+  }
+
   function showApp(user) {
     currentUser = { id: user.id, username: emailToUsername(user.email, user.user_metadata && user.user_metadata.username) };
     setBootStatus("");
+    refreshBanners();
+    startBannerPolling();
     document.getElementById("whoami").textContent = currentUser.username;
     var logoutBtn = document.getElementById("logoutBtn");
     logoutBtn.hidden = false;

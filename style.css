@@ -757,3 +757,40 @@ a.shelf-tab { text-decoration: none; }
 
 /* the hidden attribute must always win, even over display rules */
 [hidden] { display: none !important; }
+
+.build-tag {
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.66rem;
+  color: var(--brass);
+  opacity: 0.7;
+  margin: 0.25rem 0 0;
+  letter-spacing: 0.08em;
+}
+/* ---------- update banner ---------- */
+.update-banner {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: 92vw;
+  background: var(--paper-raised);
+  border: 1px solid var(--brass);
+  border-radius: 6px;
+  box-shadow: 0 12px 30px var(--shadow);
+  padding: 0.8rem 1rem;
+}
+.banner-text { font-size: 0.92rem; line-height: 1.4; }
+.banner-who {
+  display: inline-block;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--brass);
+  margin-right: 0.55rem;
+  text-transform: uppercase;
+}
+.banner-more { display: block; font-size: 0.7rem; color: var(--ink-soft); margin-top: 0.2rem; }
+.banner-dismiss { flex: none; }
