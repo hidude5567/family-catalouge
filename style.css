@@ -1,65 +1,42 @@
+/* ============================================================
+   THE CATALOG — MUSIC
+   Built from scratch. Late-night vinyl: near-black paper,
+   amber marquee glow, copper accents. Nothing from the Books
+   theme lives here.
+   ============================================================ */
+
 :root {
-  --paper: #F6F1E4;
-  --paper-raised: #FFFCF4;
-  --paper-line: #D9CFB5;
-  --ink: #2A2318;
-  --ink-soft: #6B6150;
-  --forest: #2F4A3B;
-  --forest-dark: #22362A;
-  --brass: #A8763B;
-  --brass-light: #C99A5C;
-  --burgundy: #6D2E38;
-  --shadow: rgba(42, 35, 24, 0.16);
-  --shadow-soft: rgba(42, 35, 24, 0.09);
-  --focus: #2F4A3B;
+  --paper: #161310;
+  --paper-raised: #211C16;
+  --paper-line: #3A3126;
+  --ink: #F0E6D4;
+  --ink-soft: #A99B84;
+  --forest: #C98A4B;
+  --forest-dark: #A86F35;
+  --brass: #D6A85F;
+  --brass-light: #E8C489;
+  --burgundy: #C97B8A;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --focus: #E8C489;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 *, *::before, *::after { box-sizing: inherit; }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --paper: #1B1712;
-    --paper-raised: #241F18;
-    --paper-line: #3A3226;
-    --ink: #EFE7D6;
-    --ink-soft: #B3A78E;
-    --forest: #6FA084;
-    --forest-dark: #4C7A5F;
-    --brass: #D6A85F;
-    --brass-light: #E8C489;
-    --burgundy: #C97B8A;
-    --shadow: rgba(0, 0, 0, 0.45);
-    --shadow-soft: rgba(0, 0, 0, 0.3);
-    --focus: #D6A85F;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #1B1712;
-  --paper-raised: #241F18;
-  --paper-line: #3A3226;
-  --ink: #EFE7D6;
-  --ink-soft: #B3A78E;
-  --forest: #6FA084;
-  --forest-dark: #4C7A5F;
-  --brass: #D6A85F;
-  --brass-light: #E8C489;
-  --burgundy: #C97B8A;
-  --shadow: rgba(0, 0, 0, 0.45);
-  --shadow-soft: rgba(0, 0, 0, 0.3);
-  --focus: #D6A85F;
-}
-
 html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
 body {
   height: 100%;
   margin: 0;
-  background: var(--paper);
+  /* the page sits on a vinyl record: concentric grooves radiating up from
+     below, a warm marquee glow from the top, faint sleeve grain */
+  background-color: #0E0C0A;
   background-image:
-    linear-gradient(var(--paper-line) 1px, transparent 1px);
-  background-size: 100% 2.1em;
-  background-position: 0 7.4em;
+    radial-gradient(ellipse 90% 55% at 50% -12%, rgba(201, 138, 75, 0.16), transparent 60%),
+    repeating-radial-gradient(circle at 50% 115vh, rgba(240, 230, 212, 0.045) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(0deg, rgba(240, 230, 212, 0.014) 0 2px, transparent 2px 7px);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: 'Lora', Georgia, serif;
   -webkit-font-smoothing: antialiased;
@@ -70,7 +47,10 @@ a { color: inherit; }
 button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 
-::selection { background: var(--brass-light); color: var(--forest-dark); }
+/* the hidden attribute must always win */
+[hidden] { display: none !important; }
+
+::selection { background: var(--brass-light); color: #161310; }
 
 /* ---------- layout shell ---------- */
 .page {
@@ -85,7 +65,7 @@ header.masthead {
   align-items: flex-end;
   gap: 1.5rem;
   flex-wrap: wrap;
-  border-bottom: 3px double var(--ink);
+  border-bottom: 3px double var(--brass);
   padding-bottom: 1rem;
   margin-bottom: 1.6rem;
 }
@@ -95,12 +75,39 @@ header.masthead {
   letter-spacing: 0.01em;
   margin: 0;
   line-height: 1;
+  position: relative;
+}
+/* faint spinning-record ring beside the title */
+.masthead-title::after {
+  content: "";
+  position: absolute;
+  left: -1.6rem;
+  top: 50%;
+  width: 4.6rem;
+  height: 4.6rem;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  border: 1px solid rgba(214, 168, 95, 0.35);
+  box-shadow:
+    inset 0 0 0 6px rgba(214, 168, 95, 0.10),
+    inset 0 0 0 12px rgba(214, 168, 95, 0.07),
+    inset 0 0 0 20px rgba(214, 168, 95, 0.05);
+  pointer-events: none;
 }
 .masthead-sub {
   margin: 0.4rem 0 0;
   font-family: 'Courier Prime', monospace;
   font-size: 0.82rem;
-  color: var(--ink-soft);
+  color: var(--brass);
+  opacity: 0.85;
+}
+.build-tag {
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.66rem;
+  color: var(--brass);
+  opacity: 0.7;
+  margin: 0.25rem 0 0;
+  letter-spacing: 0.08em;
 }
 .new-book-btn {
   background: var(--forest);
@@ -118,9 +125,32 @@ header.masthead {
 }
 .new-book-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 0 var(--forest-dark); }
 .new-book-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--forest-dark); }
-.new-book-btn:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+.new-book-btn:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* ---------- Books / Music tabs ---------- */
+.shelf-tabs {
+  display: flex;
+  gap: 1.1rem;
+  margin-top: 0.9rem;
+}
+.shelf-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  padding: 0.2rem 0.1rem;
+  text-decoration: none;
+}
+.shelf-tab:hover { color: var(--ink); }
+.shelf-tab.active {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--brass);
 }
 
 /* ---------- search row ---------- */
@@ -200,7 +230,6 @@ select.genre-filter {
 }
 @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
 
-/* cover thumbnail */
 .card-cover {
   position: relative;
   aspect-ratio: 2 / 3;
@@ -209,6 +238,8 @@ select.genre-filter {
   background: var(--paper);
   overflow: hidden;
 }
+/* album covers are square */
+.album-cover { aspect-ratio: 1 / 1; }
 .cover-fallback {
   position: absolute;
   inset: 0;
@@ -283,17 +314,17 @@ select.genre-filter {
 }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 .icon-btn {
-  background: rgba(20, 17, 11, 0.55);
+  background: rgba(0, 0, 0, 0.55);
   border: none;
   color: var(--paper-raised);
   padding: 5px;
   line-height: 0;
   border-radius: 3px;
 }
-.icon-btn:hover { background: rgba(20, 17, 11, 0.8); }
+.icon-btn:hover { background: rgba(0, 0, 0, 0.8); }
 .icon-btn svg { width: 15px; height: 15px; }
 
-/* ---------- book info popup ---------- */
+/* ---------- album popup ---------- */
 .view-book { display: flex; gap: 1.2rem; }
 .view-cover {
   position: relative;
@@ -312,6 +343,18 @@ select.genre-filter {
 .view-isbn { font-size: 0.78rem; color: var(--ink-soft); }
 .view-added { font-family: 'Courier Prime', monospace; font-size: 0.78rem; color: var(--ink-soft); margin: 0 0 1.2rem; }
 .view-book .form-actions { margin-top: 1rem; }
+
+/* track list in the album popup */
+.track-list {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.track-list li { margin-bottom: 0.12rem; }
+
 @media (max-width: 520px) {
   .view-book { flex-direction: column; }
   .view-cover { width: 120px; }
@@ -331,7 +374,7 @@ select.genre-filter {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 17, 11, 0.55);
+  background: rgba(8, 6, 4, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -414,7 +457,7 @@ select.genre-filter {
   color: var(--ink-soft);
   margin-bottom: 0.32rem;
 }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
   width: 100%;
   padding: 0.65rem 0.8rem;
   border: 1px solid var(--paper-line);
@@ -423,7 +466,7 @@ select.genre-filter {
   border-radius: 3px;
   font-size: 0.95rem;
 }
-.field textarea { resize: vertical; min-height: 4.2em; }
+.field textarea { resize: vertical; min-height: 4.2em; font-family: inherit; }
 .field-hint { font-size: 0.76rem; color: var(--ink-soft); margin-top: 0.3rem; }
 .field-error { font-size: 0.78rem; color: var(--burgundy); margin-top: 0.3rem; }
 
@@ -436,6 +479,7 @@ select.genre-filter {
   font-size: 0.9rem;
   font-weight: 600;
 }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .btn-primary { background: var(--forest); color: var(--paper-raised); }
 .btn-primary:hover { background: var(--forest-dark); }
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -475,36 +519,6 @@ select.genre-filter {
   color: var(--ink);
 }
 
-.scan-wrap {
-  background: #000;
-  border-radius: 6px;
-  overflow: hidden;
-  position: relative;
-  aspect-ratio: 4 / 3;
-  margin-bottom: 0.9rem;
-}
-.scan-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.scan-line {
-  position: absolute;
-  left: 8%; right: 8%;
-  top: 50%;
-  height: 2px;
-  background: var(--brass-light);
-  box-shadow: 0 0 8px var(--brass-light);
-  animation: scanmove 1.8s ease-in-out infinite;
-}
-@keyframes scanmove {
-  0%, 100% { top: 30%; }
-  50% { top: 70%; }
-}
-@media (prefers-reduced-motion: reduce) { .scan-line { animation: none; top: 50%; } }
-.scan-frame {
-  position: absolute; inset: 12% 10%;
-  border: 2px solid rgba(255,255,255,0.55);
-  border-radius: 6px;
-  pointer-events: none;
-}
-
 .toast {
   position: fixed;
   bottom: calc(1.4rem + env(safe-area-inset-bottom, 0px));
@@ -536,97 +550,10 @@ select.genre-filter {
 @media (max-width: 480px) {
   .masthead-title { font-size: 1.6rem; }
   .new-book-btn span.label { display: none; }
-}
-
-/* ---------- header actions (logged-in state) ---------- */
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  flex-wrap: wrap;
-}
-.whoami {
-  color: var(--ink-soft);
-  font-size: 0.8rem;
-}
-@media (max-width: 480px) {
   .whoami { display: none; }
 }
 
-/* ---------- auth gate ---------- */
-.auth-shell {
-  min-height: 100%;
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: var(--paper);
-  background-image: linear-gradient(var(--paper-line) 1px, transparent 1px);
-  background-size: 100% 2.1em;
-}
-.auth-card {
-  width: 100%;
-  max-width: 380px;
-  background: var(--paper-raised);
-  border: 1px solid var(--paper-line);
-  border-radius: 6px;
-  box-shadow: 0 20px 50px var(--shadow);
-  padding: 2rem 1.8rem 1.8rem;
-  text-align: center;
-}
-.auth-title { font-size: 1.7rem; }
-.auth-sub { margin-bottom: 1.6rem; }
-.auth-tabs {
-  display: flex;
-  border: 1px solid var(--paper-line);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 1.5rem;
-}
-.auth-tab {
-  flex: 1;
-  background: var(--paper);
-  border: none;
-  color: var(--ink-soft);
-  padding: 0.6rem 0.5rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  border-right: 1px solid var(--paper-line);
-}
-.auth-tab:last-child { border-right: none; }
-.auth-tab.active {
-  background: var(--forest);
-  color: var(--paper-raised);
-}
-#authForm { text-align: left; }
-#authForm .btn { width: 100%; margin-top: 0.2rem; }
-.auth-footnote {
-  font-size: 0.76rem;
-  color: var(--ink-soft);
-  margin: 1.1rem 0 0;
-}
-.auth-card .status-line { justify-content: center; }
-
-/* ---------- on-page boot / error status banner ---------- */
-.boot-status {
-  position: fixed;
-  top: 0.8rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 200;
-  background: var(--ink);
-  color: var(--paper);
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.82rem;
-  padding: 0.55rem 1rem;
-  border-radius: 4px;
-  box-shadow: 0 8px 20px var(--shadow);
-  max-width: 92vw;
-}
-.boot-status[hidden] { display: none; }
-.boot-status-error { background: var(--burgundy); color: var(--paper-raised); }
-
+/* noscript */
 .noscript-note {
   margin: 1rem auto;
   max-width: 40rem;
@@ -637,135 +564,53 @@ select.genre-filter {
   font-size: 0.95rem;
 }
 
-/* ---------- Google sign-in (login page) ---------- */
-.auth-divider {
+.discogs-link {
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.78rem;
+  color: var(--brass);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--brass);
+}
+.discogs-link:hover { color: var(--brass-light); }
+.discogs-link-row { margin-bottom: 0.6rem !important; }
+
+/* ---------- manager mode ---------- */
+.manager-bar {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  margin: 1.1rem 0;
-  color: var(--ink-soft);
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.72rem;
+  margin: -1.2rem 0 1.6rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--brass);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--brass) 10%, var(--paper));
 }
-.auth-divider::before, .auth-divider::after {
-  content: "";
-  flex: 1;
-  border-top: 1px solid var(--paper-line);
-}
-.btn-google {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  background: var(--paper);
-  color: var(--ink);
-  border: 1px solid var(--paper-line);
-}
-.btn-google:hover { border-color: var(--ink-soft); }
-.btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
-.auth-skip {
-  background: none;
-  border: none;
-  color: var(--ink-soft);
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.74rem;
-  margin-top: 0.9rem;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.auth-skip:hover { color: var(--ink); }
-
-/* ---------- Books / Music section tabs ---------- */
-.shelf-tabs {
-  display: flex;
-  gap: 1.1rem;
-  margin-top: 0.9rem;
-}
-.shelf-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  padding: 0.2rem 0.1rem;
-}
-.shelf-tab:hover { color: var(--ink); }
-.shelf-tab.active {
-  color: var(--ink);
-  font-weight: 700;
-  border-bottom-color: var(--forest);
-}
-
-/* ---------- album covers are square ---------- */
-.album-cover { aspect-ratio: 1 / 1; }
-
-/* ---------- track list in the album popup ---------- */
-.track-list {
-  margin: 0 0 1rem;
-  padding-left: 1.5rem;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.track-list li { margin-bottom: 0.12rem; }
-
-/* ---------- quantity badge + stepper ---------- */
-.qty-badge {
-  position: absolute;
-  bottom: 0.5rem;
-  right: 0.5rem;
-  min-width: 1.6rem;
-  height: 1.6rem;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--spine, var(--forest));
-  color: var(--paper-raised);
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.78rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px var(--shadow-soft);
-  z-index: 2;
-}
-.qty-row {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0.2rem 0 0.8rem;
-}
-.qty-label { font-size: 0.8rem; color: var(--ink-soft); }
-.qty-val { font-size: 0.95rem; font-weight: 700; min-width: 1.4rem; text-align: center; }
-.qty-btn {
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: 50%;
-  border: 1px solid var(--paper-line);
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 1.05rem;
-  line-height: 1;
-  padding: 0;
-}
-.qty-btn:hover { border-color: var(--forest); }
-
-a.shelf-tab { text-decoration: none; }
-
-/* the hidden attribute must always win, even over display rules */
-[hidden] { display: none !important; }
-
-.build-tag {
-  font-family: 'Courier Prime', monospace;
-  font-size: 0.66rem;
+.manager-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
   color: var(--brass);
-  opacity: 0.7;
-  margin: 0.25rem 0 0;
-  letter-spacing: 0.08em;
+  font-weight: 700;
 }
+.manager-bar select {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--paper-line);
+  background: var(--paper-raised);
+  color: var(--ink);
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+.msg-list { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 1rem; max-height: 45vh; overflow-y: auto; }
+.msg-item {
+  border: 1px solid var(--paper-line);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+  background: var(--paper);
+}
+.msg-meta { font-size: 0.72rem; color: var(--ink-soft); margin-bottom: 0.25rem; }
+.msg-compose select { max-width: 11rem; }
+.msg-compose input { flex: 1; }
+
 /* ---------- update banner ---------- */
 .update-banner {
   position: fixed;
@@ -794,3 +639,22 @@ a.shelf-tab { text-decoration: none; }
 }
 .banner-more { display: block; font-size: 0.7rem; color: var(--ink-soft); margin-top: 0.2rem; }
 .banner-dismiss { flex: none; }
+
+/* ---------- on-page status / error banner ---------- */
+.boot-status {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.82rem;
+  padding: 0.55rem 1rem;
+  border-radius: 4px;
+  box-shadow: 0 8px 20px var(--shadow);
+  max-width: 92vw;
+}
+.boot-status[hidden] { display: none; }
+.boot-status-error { background: var(--burgundy); color: var(--paper-raised); }
