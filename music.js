@@ -1,6 +1,25 @@
 (function () {
   "use strict";
 
+  /* on-page status/error banner — when something fails, the page SAYS SO
+     instead of silently showing an empty shelf */
+  var bootStatusEl = null;
+  function setBootStatus(text, isError) {
+    if (!bootStatusEl) bootStatusEl = document.getElementById("bootStatus");
+    if (!bootStatusEl) return;
+    if (!text) { bootStatusEl.hidden = true; return; }
+    bootStatusEl.hidden = false;
+    bootStatusEl.textContent = text;
+    bootStatusEl.classList.toggle("boot-status-error", !!isError);
+  }
+  window.addEventListener("error", function (e) {
+    setBootStatus("Script error: " + ((e && e.message) || "unknown") + " — tell the site owner this text", true);
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason;
+    setBootStatus("Error: " + ((r && (r.message || r.error_description)) || String(r)) + " — tell the site owner this text", true);
+  });
+
   /* ---------------- constants & utils ---------------- */
   var MUSIC_FORMATS = ["CD","Vinyl","Cassette","Digital","Other"];
   var MUSIC_GENRE_SUGGESTIONS = ["Rock","Pop","Hip-Hop","Jazz","Classical","Country","Folk","Electronic","R&B","Metal","Punk","Blues","Reggae","Soundtrack","Children's","Holiday","Comedy","Other"];
@@ -869,12 +888,14 @@
   async function boot() {
     // Local-first: your albums appear instantly, even if the account
     // service or CDN is slow/blocked. Cloud sync upgrades in the background.
+    setBootStatus("Loading your music shelf…");
     try { loadLocalFallback(); } catch (e) {}
     setSyncNote("Saved to this browser. Checking for your account…");
     try {
       await connectSupabase();
       var session = await getSessionWithRetries(3);
       if (session && session.user) {
+        setBootStatus("");
         showApp(session.user);
       } else {
         usingLocalFallback = true;
@@ -885,6 +906,11 @@
       usingLocalFallback = true;
       setSyncNote("Saved to this browser only (account service unreachable).");
       document.getElementById("loginLink").hidden = false;
+      setBootStatus("Account service unreachable — showing this browser's saved albums. (" + ((e && e.message) || "unknown") + ")", true);
+    }
+    // last-resort guarantee: the shelf is ALWAYS rendered, no matter what
+    try { renderAll(); } catch (e2) {
+      setBootStatus("Couldn't display albums: " + ((e2 && e2.message) || e2), true);
     }
   }
   populateFormatFilter();
