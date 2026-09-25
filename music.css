@@ -639,3 +639,22 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 .banner-more { display: block; font-size: 0.7rem; color: var(--ink-soft); margin-top: 0.2rem; }
 .banner-dismiss { flex: none; }
+
+/* ---------- on-page status / error banner ---------- */
+.boot-status {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.82rem;
+  padding: 0.55rem 1rem;
+  border-radius: 4px;
+  box-shadow: 0 8px 20px var(--shadow);
+  max-width: 92vw;
+}
+.boot-status[hidden] { display: none; }
+.boot-status-error { background: var(--burgundy); color: var(--paper-raised); }
