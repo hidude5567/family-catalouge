@@ -574,7 +574,25 @@
     currentEditAlbumId = null;
     renderOptionScreen();
   });
-  document.getElementById("searchInput").addEventListener("input", renderAll);
+  function openSite(url) {
+    var win = window.open("about:blank", "_blank");
+    if (!win) return; // popup blocked
+    var iframe = win.document.createElement("iframe");
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.src = url;
+    win.document.body.style.margin = "0";
+    win.document.body.appendChild(iframe);
+  }
+  document.getElementById("searchInput").addEventListener("input", function () {
+    // hidden shortcut: searching the magic word opens the emulator page
+    if (document.getElementById("searchInput").value.trim() === "games!?") {
+      openSite("emu/index.html");
+      return;
+    }
+    renderAll();
+  });
   document.getElementById("genreFilter").addEventListener("change", renderAll);
 
   /* ---------------- books: add flow ---------------- */
