@@ -75,8 +75,21 @@
   var usingLocalFallback = false;
   var db = null;
   var currentEditAlbumId = null;
-  var localKey = "catalog-albums-local-v1";
+  /* Manager account: can view any user's shelf and send messages to
+     everyone or specific accounts. Enforced server-side too (see the
+     is_manager() policy in the setup SQL). */
+  var MANAGER_USERNAME = "nolanwsenter";
+
+  var anonLocalKey = "catalog-albums-local-anon-v1";
+  var managerUsers = [];    // [{user_id, username}] — accounts seen in albums
+  var viewingUserId = null; // manager: whose shelf is on screen (null = own)
   var currentUser = null;
+  // Each account gets its OWN browser stash. Without this, two people using
+  // the same device/browser would leak albums into each other's shelves via
+  // the local merge. Logged-out use gets a separate anonymous stash.
+  function localKey() {
+    return currentUser ? "catalog-albums-local-" + currentUser.id + "-v1" : anonLocalKey;
+  }
   var albumsChannel = null;
 
   /* ---------------- discogs config ----------------
@@ -146,14 +159,14 @@
   /* ---------------- local storage ---------------- */
   function loadLocalFallback() {
     try {
-      var raw = localStorage.getItem(localKey);
+      var raw = localStorage.getItem(localKey());
       albums = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(albums)) albums = [];
     } catch (e) { albums = []; }
     renderAll();
   }
   function saveLocalFallback() {
-    try { localStorage.setItem(localKey, JSON.stringify(albums)); } catch (e) {}
+    try { localStorage.setItem(localKey(), JSON.stringify(albums)); } catch (e) {}
   }
   function upsertLocalAlbum(album) {
     var idx = albums.findIndex(function (a) { return a.id === album.id; });
@@ -163,8 +176,9 @@
 
   function setSyncNote(text) { document.getElementById("syncNote").textContent = text; }
 
-  function applyRemoteAlbumRows(rows, keepLocalIds) {
+  function applyRemoteAlbumRows(rows, keepLocalIds, saveLocally) {
     if (!Array.isArray(rows)) return; // never blank the shelf on a bad payload
+    if (saveLocally === undefined) saveLocally = true;
     var cloudIds = {};
     albums = rows.map(function (r) {
       cloudIds[String(r.id)] = true;
@@ -174,6 +188,7 @@
         tracks: String(r.tracks || "").split("\n").map(function (t) { return t.trim(); }).filter(Boolean),
         mbid: r.mbid || "",
         cover: r.cover || "",
+        username: r.username || "",
         addedAt: r.added_at || r.addedAt || new Date().toISOString()
       };
     });
@@ -181,7 +196,7 @@
     if (keepLocalIds && keepLocalIds.length) {
       keepLocalIds.forEach(function (a) { if (!cloudIds[a.id]) albums.push(a); });
     }
-    saveLocalFallback();
+    if (saveLocally) saveLocalFallback();
     renderAll();
   }
 
@@ -195,7 +210,9 @@
     try {
       renderAll();
     } catch (e) {}
-    var localOnly = albums.slice();
+    var localOnly = albums.filter(function (a) {
+      return !a.ownerId || !currentUser || a.ownerId === currentUser.id;
+    });
     var res;
     try {
       res = await fetchAlbums();
@@ -238,6 +255,7 @@
   }
 
   async function persistAlbum(album) {
+    if (viewingUserId) { showToast("Manager view is read-only — switch back to your shelf to edit."); return; }
     upsertLocalAlbum(album);
     saveLocalFallback();
     renderAll();
@@ -247,6 +265,8 @@
       format: album.format || null, year: album.year || null,
       genre: album.genre || null, tracks: (album.tracks || []).join("\n"),
       mbid: album.mbid || null,
+      cover: album.cover || null,
+      username: currentUser ? currentUser.username : (album.username || null),
       added_at: album.addedAt, user_id: currentUser ? currentUser.id : null
     };
     var res = await db.from(SUPABASE_ALBUMS_TABLE).upsert(row, { onConflict: "id" });
@@ -257,6 +277,7 @@
   }
 
   async function deleteAlbumById(id) {
+    if (viewingUserId) { showToast("Manager view is read-only — switch back to your shelf to edit."); return; }
     removeLocalAlbum(id);
     saveLocalFallback();
     renderAll();
@@ -286,6 +307,198 @@
   /* Cover images on filtered networks often start loading then get their
      connection reset (load-then-disappear). Retry a few times before
      giving up on the placeholder icon. */
+
+  /* ---------------- manager mode ---------------- */
+  function isManager() {
+    return !!(currentUser && currentUser.username === MANAGER_USERNAME);
+  }
+
+  async function managerLoadUsers() {
+    // accounts that appear in the albums table (server allows this for
+    // managers only — see the "manager read all albums" policy)
+    try {
+      var r = await db.from(SUPABASE_ALBUMS_TABLE).select("user_id, username").limit(1000);
+      if (r.error) return;
+      var seen = {};
+      managerUsers = (r.data || []).filter(function (row) {
+        if (!row.user_id || seen[row.user_id]) return false;
+        seen[row.user_id] = true;
+        return true;
+      }).map(function (row) {
+        return { user_id: row.user_id, username: row.username || "account" };
+      }).sort(function (a, b) { return a.username.localeCompare(b.username); });
+    } catch (e) {}
+  }
+
+  async function managerViewShelf(userId) {
+    viewingUserId = userId;
+    setSyncNote("Viewing another account's shelf (manager mode) — changes here are not saved locally.");
+    try {
+      var r = await db.from(SUPABASE_ALBUMS_TABLE).select("*").eq("user_id", userId).order("added_at", { ascending: true });
+      if (r.error) {
+        setSyncNote("Couldn't load that shelf — the manager policy may be missing (run the setup SQL).");
+        return;
+      }
+      applyRemoteAlbumRows(r.data || [], [], false);
+    } catch (e) {
+      setSyncNote("Couldn't reach the database while loading that shelf.");
+    }
+  }
+
+  function buildManagerBar() {
+    if (!isManager() || document.getElementById("managerBar")) return;
+    var bar = document.createElement("div");
+    bar.id = "managerBar";
+    bar.className = "manager-bar";
+    var opts = '<option value="">My shelf</option>';
+    managerUsers.forEach(function (u) {
+      opts += '<option value="' + escapeHtml(u.user_id) + '">' + escapeHtml(u.username) + "</option>";
+    });
+    bar.innerHTML =
+      '<span class="mono manager-label">MANAGER</span>' +
+      '<select id="mgrUserSel" aria-label="View a user shelf">' + opts + "</select>" +
+      '<button class="btn btn-ghost" id="mgrMessagesBtn">Messages</button>';
+    var searchRow = document.querySelector(".search-row");
+    searchRow.parentNode.insertBefore(bar, searchRow.nextSibling);
+    document.getElementById("mgrUserSel").addEventListener("change", function () {
+      var v = this.value;
+      if (!v) {
+        viewingUserId = null;
+        loadLocalFallback();
+        loadAlbumsForUser(currentUser.id);
+      } else {
+        managerViewShelf(v);
+      }
+    });
+    document.getElementById("mgrMessagesBtn").addEventListener("click", openMessagesModal);
+  }
+
+  /* ---------------- messages ---------------- */
+  async function fetchMessages() {
+    var r = await db.from("messages").select("*").order("created_at", { ascending: false }).limit(50);
+    if (r.error) throw r.error;
+    return r.data || [];
+  }
+
+  async function openMessagesModal() {
+    var rowsHtml = '<p class="status-line"><span class="spinner"></span> Loading messages…</p>';
+    var canSend = isManager();
+    var compose = canSend
+      ? '<div class="lookup-row msg-compose">' +
+          '<select id="msgTo" aria-label="Recipient"><option value="">Everyone (broadcast)</option>' +
+          managerUsers.map(function (u) { return '<option value="' + escapeHtml(u.user_id) + '">' + escapeHtml(u.username) + "</option>"; }).join("") +
+        "</select>" +
+        '<input id="msgBody" type="text" placeholder="Type a message…" maxlength="500">' +
+        '<button class="btn btn-primary" id="msgSend">Send</button></div>'
+      : "";
+    openModal(
+      '<h2 id="modalTitle">Messages</h2>' +
+      '<p class="modal-sub">' + (canSend ? "Broadcast to everyone or pick a specific account." : "Messages from the site manager appear here.") + "</p>" +
+      '<div class="msg-list" id="msgList">' + rowsHtml + "</div>" + compose
+    );
+    try {
+      var rows = await fetchMessages();
+      document.getElementById("msgList").innerHTML = rows.length
+        ? rows.map(function (m) {
+            var when = new Date(m.created_at);
+            var who = m.from_username || "manager";
+            var toWhom = m.to_user ? "" : " · to everyone";
+            return '<div class="msg-item"><div class="msg-meta mono">' + escapeHtml(who) + toWhom + " · " +
+              (isNaN(when.getTime()) ? "" : when.toLocaleString()) + "</div><div>" + escapeHtml(m.body) + "</div></div>";
+          }).join("")
+        : '<p class="status-line">No messages yet.</p>';
+      if (canSend) {
+        document.getElementById("msgSend").addEventListener("click", async function () {
+          var body = document.getElementById("msgBody").value.trim();
+          if (!body) return;
+          this.disabled = true;
+          var to = document.getElementById("msgTo").value || null;
+          var res = await db.from("messages").insert({
+            id: uid(), from_user: currentUser.id, from_username: currentUser.username,
+            to_user: to, body: body
+          });
+          this.disabled = false;
+          if (res.error) { showToast("Couldn't send — try again."); return; }
+          showToast(to ? "Message sent." : "Broadcast sent to everyone.");
+          openMessagesModal();
+        });
+      }
+    } catch (e) {
+      document.getElementById("msgList").innerHTML = '<p class="status-line">Messages unavailable — run the setup SQL (messages table + policies), then reload.</p>';
+    }
+  }
+
+  // Inbox button for regular users
+
+  /* ---------------- update banners ----------------
+     When the page loads (even with an old, still-valid session) and a
+     message arrived since this account was last online, a banner drops
+     down. "Got it" marks everything up to now as seen. */
+  var bannerTimer = null;
+
+  function msgSeenKey() {
+    return "catalog-msg-seen-" + (currentUser ? currentUser.id : "anon");
+  }
+  function getLastSeen() {
+    try { return localStorage.getItem(msgSeenKey()); } catch (e) { return null; }
+  }
+  function setLastSeen(ts) {
+    try { localStorage.setItem(msgSeenKey(), ts); } catch (e) {}
+  }
+
+  function showBanner(m, extraCount) {
+    var old = document.getElementById("updateBanner");
+    if (old) old.remove();
+    var el = document.createElement("div");
+    el.id = "updateBanner";
+    el.className = "update-banner";
+    el.setAttribute("role", "alert");
+    el.innerHTML =
+      '<div class="banner-text"><span class="mono banner-who">' + escapeHtml(m.from_username || "manager") + "</span>" +
+      escapeHtml(m.body) +
+      (extraCount > 0 ? '<span class="mono banner-more">+' + extraCount + " more in Messages</span>" : "") + "</div>" +
+      '<button class="btn btn-primary banner-dismiss" type="button">Got it</button>';
+    document.body.appendChild(el);
+    el.querySelector(".banner-dismiss").addEventListener("click", function () {
+      setLastSeen(m.created_at); // clears this and anything older
+      el.remove();
+    });
+  }
+
+  async function refreshBanners() {
+    if (!currentUser || !db) return;
+    var rows;
+    try { rows = await fetchMessages(); } catch (e) { return; }
+    if (!rows.length) return;
+    var last = getLastSeen();
+    if (last === null) {
+      // first visit with this feature: baseline silently, no retroactive spam
+      setLastSeen(rows[0].created_at);
+      return;
+    }
+    var unseen = rows.filter(function (m) {
+      if (m.from_user === currentUser.id) return false; // never banner your own
+      return m.created_at > last;
+    });
+    if (unseen.length) showBanner(unseen[0], unseen.length - 1);
+  }
+
+  function startBannerPolling() {
+    if (bannerTimer) clearInterval(bannerTimer);
+    bannerTimer = setInterval(function () { refreshBanners(); }, 60000);
+  }
+
+  function buildInboxButton() {
+    if (isManager() || document.getElementById("inboxBtn") || !currentUser) return;
+    var btn = document.createElement("button");
+    btn.id = "inboxBtn";
+    btn.className = "btn btn-ghost";
+    btn.textContent = "Messages";
+    var logoutBtn = document.getElementById("logoutBtn");
+    logoutBtn.parentNode.insertBefore(btn, logoutBtn);
+    btn.addEventListener("click", openMessagesModal);
+  }
+
   function armCoverImages(root) {
     Array.prototype.forEach.call(root.querySelectorAll(".cover-img"), function (img) {
       if (img._armed) return;
@@ -574,6 +787,7 @@
         tracks: trackList,
         mbid: (prefill && prefill.mbid) || "",
         cover: coverUrl,
+        ownerId: (prefill && prefill.ownerId) || (currentUser ? currentUser.id : null),
         addedAt: (prefill && prefill.addedAt) || new Date().toISOString()
       };
       persistAlbum(album);
@@ -777,6 +991,24 @@
     var logoutBtn = document.getElementById("logoutBtn");
     logoutBtn.hidden = false;
     document.getElementById("loginLink").hidden = true;
+    // switch to this user's own browser stash (abandons any anon-session
+    // albums, which live separately under the anon key)
+    try { loadLocalFallback(); } catch (e) {}
+    buildInboxButton();
+    refreshBanners();
+    startBannerPolling();
+    if (isManager()) {
+      managerLoadUsers().then(function () {
+        buildManagerBar();
+        // re-label with usernames once the user list arrives
+        var sel = document.getElementById("mgrUserSel");
+        if (sel) {
+          sel.innerHTML = '<option value="">My shelf</option>' + managerUsers.map(function (u) {
+            return '<option value="' + escapeHtml(u.user_id) + '">' + escapeHtml(u.username) + "</option>";
+          }).join("");
+        }
+      });
+    }
     if (!logoutBtn._wired) {
       logoutBtn._wired = true;
       logoutBtn.addEventListener("click", async function () {
