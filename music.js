@@ -1,4 +1,4 @@
-(function () {
+the image loads then dissapears(function () {
   "use strict";
 
   /* ---------------- constants & utils ---------------- */
@@ -257,6 +257,28 @@
     return hay.some(function (f) { return f && f.toLowerCase().indexOf(q) !== -1; });
   }
 
+
+  /* Cover images on filtered networks often start loading then get their
+     connection reset (load-then-disappear). Retry a few times before
+     giving up on the placeholder icon. */
+  function armCoverImages(root) {
+    Array.prototype.forEach.call(root.querySelectorAll(".cover-img"), function (img) {
+      if (img._armed) return;
+      img._armed = true;
+      var tries = 0;
+      img.addEventListener("error", function () {
+        tries++;
+        if (tries < 3 && img.src) {
+          setTimeout(function () {
+            img.src = img.src.split("#")[0] + "#retry" + tries;
+          }, 900 * tries);
+        } else {
+          img.style.display = "none";
+        }
+      });
+    });
+  }
+
   function formatShort(f) {
     if (!f) return "—";
     if (f === "Vinyl") return "VINYL";
@@ -293,7 +315,7 @@
         '<article class="card" data-id="' + a.id + '" tabindex="0" role="button" aria-label="View ' + escapeHtml(a.title || "Untitled") + '" style="--spine:' + color + '; animation-delay:' + Math.min(i * 0.03, 0.4) + 's">' +
           '<div class="card-cover album-cover">' +
             '<div class="cover-fallback">' + DISC_ICON_SVG + '</div>' +
-            (cover ? '<img class="cover-img" src="' + cover + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '') +
+            (cover ? '<img class="cover-img" src="' + cover + '" alt="" loading="lazy">' : '') +
             '<div class="card-tab mono">' + escapeHtml(formatShort(a.format)) + "</div>" +
             '<div class="card-actions">' +
               '<button class="icon-btn edit-btn" data-id="' + a.id + '" aria-label="Edit ' + escapeHtml(a.title) + '"><svg viewBox="0 0 20 20" fill="none"><path d="M13.5 3.5l3 3-9 9-3.6.6.6-3.6 9-9z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>' +
@@ -309,6 +331,8 @@
         "</article>"
       );
     }).join("");
+
+    armCoverImages(grid);
 
     Array.prototype.forEach.call(grid.querySelectorAll(".edit-btn"), function (btn) {
       btn.addEventListener("click", function (e) { e.stopPropagation(); openAlbumEditForm(btn.getAttribute("data-id")); });
@@ -356,7 +380,7 @@
       '<div class="view-book" style="--spine:' + color + '">' +
         '<div class="view-cover album-cover">' +
           '<div class="cover-fallback">' + DISC_ICON_SVG + '</div>' +
-          (cover ? '<img class="cover-img" src="' + cover + '" alt="" onerror="this.style.display=\'none\'">' : '') +
+          (cover ? '<img class="cover-img" src="' + cover + '" alt="">' : '') +
         "</div>" +
         '<div class="view-info">' +
           '<h2 id="modalTitle">' + escapeHtml(a.title || "Untitled") + "</h2>" +
@@ -377,6 +401,7 @@
         "</div>" +
       "</div>"
     );
+    armCoverImages(document.getElementById("modalBody"));
     document.getElementById("viewCloseBtn").addEventListener("click", closeModal);
     document.getElementById("viewEditBtn").addEventListener("click", function () { openAlbumEditForm(a.id); });
     document.getElementById("viewDeleteBtn").addEventListener("click", function () {
