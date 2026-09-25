@@ -7,9 +7,9 @@
   var SPINE_COLORS = ["#C98A4B","#8A5A8E","#4B7A6D","#A85454","#5A7AB0","#B08A3C","#7A6AA8","#4B8A9E"];
   var DISC_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M12 3.5a8.5 8.5 0 016.8 3.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
-  function albumCoverUrl(mbid) {
-    if (!mbid) return null;
-    return "https://coverartarchive.org/release/" + encodeURIComponent(mbid) + "/front-250";
+  function albumCoverUrl(album) {
+    if (!album) return null;
+    return album.cover || null;
   }
   function hashStr(s) {
     var h = 0;
@@ -41,6 +41,31 @@
       return res.json();
     });
   }
+  function fetchDiscogs(path, ms) {
+    if (DISCOGS_PROXY) {
+      // proxy mode: server holds the token; only /database/search and
+      // /releases/* are allowed through
+      return fetch(DISCOGS_PROXY + "?path=" + encodeURIComponent(path), {
+        signal: AbortSignal.timeout(ms || 15000)
+      }).then(function (res) {
+        if (!res.ok) throw new Error("proxy http " + res.status);
+        return res.json();
+      });
+    }
+    var headers = { "User-Agent": "FamilyCatalog/1.0" };
+    if (DISCOGS_TOKEN) headers["Authorization"] = "Discogs token=" + DISCOGS_TOKEN;
+    return fetch(DISCOGS_API + path, {
+      headers: headers,
+      signal: AbortSignal.timeout(ms || 15000)
+    }).then(function (res) {
+      if (res.status === 401) throw new Error("discogs token missing or invalid");
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    });
+  }
+  function discogsConfigured() {
+    return !!(DISCOGS_PROXY || DISCOGS_TOKEN);
+  }
 
   /* ---------------- state ---------------- */
   var albums = [];
@@ -50,6 +75,26 @@
   var localKey = "catalog-albums-local-v1";
   var currentUser = null;
   var albumsChannel = null;
+
+  /* ---------------- discogs config ----------------
+     Discogs' database search requires a personal access token (browser
+     apps can't do their OAuth flow without a server). Getting one is free
+     and takes ~3 minutes:
+       1. Log in at discogs.com
+       2. Go to discogs.com/settings/developers
+       3. Click "Generate token"
+       4. Paste it between the quotes below
+     One token serves the whole family app. Without it, album lookup is
+     disabled (manual entry still works). */
+  /* Two ways to reach Discogs:
+     (A) PROXY (recommended for a public app): one token lives on the
+         server, everyone shares it. Deploy the edge function described
+         in the README notes, paste its URL below.
+     (B) DIRECT: each user pastes their own token. Only sensible for
+         personal use. */
+  var DISCOGS_PROXY = "https://wgyrpvrzafubezcxqrzy.supabase.co/functions/v1/discogs-proxy";
+  var DISCOGS_TOKEN = "";
+  var DISCOGS_API = "https://api.discogs.com";
 
   var SUPABASE_URL = "https://wgyrpvrzafubezcxqrzy.supabase.co";
   var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXJwdnJ6YWZ1YmV6Y3hxcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxODI2NjYsImV4cCI6MjEwNTc1ODY2Nn0.rGn52ohlPcbKKoiRU3vsd1IrPeE5id6eriDD_JR8jco";
@@ -124,6 +169,7 @@
         format: r.format || "", year: r.year || null, genre: r.genre || "",
         tracks: String(r.tracks || "").split("\n").map(function (t) { return t.trim(); }).filter(Boolean),
         mbid: r.mbid || "",
+        cover: r.cover || "",
         addedAt: r.added_at || r.addedAt || new Date().toISOString()
       };
     });
@@ -239,7 +285,7 @@
 
     grid.innerHTML = filtered.map(function (a, i) {
       var color = spineColor(a.genre || a.format);
-      var cover = albumCoverUrl(a.mbid);
+      var cover = albumCoverUrl(a);
       return (
         '<article class="card" data-id="' + a.id + '" tabindex="0" role="button" aria-label="View ' + escapeHtml(a.title || "Untitled") + '" style="--spine:' + color + '; animation-delay:' + Math.min(i * 0.03, 0.4) + 's">' +
           '<div class="card-cover album-cover">' +
@@ -292,7 +338,7 @@
     var a = albums.find(function (x) { return x.id === id; });
     if (!a) return;
     var color = spineColor(a.genre || a.format);
-    var cover = albumCoverUrl(a.mbid);
+    var cover = albumCoverUrl(a);
     var added = a.addedAt ? new Date(a.addedAt) : null;
     var addedStr = (added && !isNaN(added.getTime())) ? added.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "";
     var tracksHtml;
@@ -319,6 +365,7 @@
           "</div>" +
           tracksHtml +
           (addedStr ? '<p class="view-added">Added ' + addedStr + "</p>" : "") +
+          '<p class="view-added discogs-link-row"><a class="discogs-link" href="' + escapeHtml(discogsReleaseUrl(a) || "https://www.discogs.com/search/") + '" target="_blank" rel="noopener">Check on Discogs ↗</a></p>' +
           '<div class="form-actions">' +
             '<button type="button" class="btn btn-danger" id="viewDeleteBtn">Remove</button>' +
             '<button type="button" class="btn btn-ghost" id="viewCloseBtn">Close</button>' +
@@ -362,6 +409,17 @@
   document.getElementById("formatFilter").addEventListener("change", renderAll);
 
   /* ---------------- add flow ---------------- */
+
+  function discogsReleaseUrl(album) {
+    if (!album) return null;
+    if (album.mbid) return "https://www.discogs.com/release/" + encodeURIComponent(album.mbid);
+    var parts = [];
+    if (album.artist) parts.push(album.artist);
+    if (album.title) parts.push(album.title);
+    if (!parts.length) return null;
+    return "https://www.discogs.com/search/?q=" + encodeURIComponent(parts.join(" - ")) + "&type=release";
+  }
+
   function renderAlbumOptionScreen() {
     openModal(
       '<h2 id="modalTitle">Add an album</h2>' +
@@ -373,7 +431,7 @@
         "</button>" +
         '<button class="option-tile" id="optLookup">' +
           '<span class="opt-icon"><svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>' +
-          '<span><strong>Search by album, artist, or UPC</strong><span>Looked up live in MusicBrainz — track list included.</span></span>' +
+          '&nbsp;<span><strong>Search by album, artist, or UPC</strong><span>Looked up live in Discogs — track list included.</span></span>' +
         "</button>" +
       "</div>"
     );
@@ -458,6 +516,7 @@
         title: t, artist: ar, format: f, year: yr, genre: g,
         tracks: trackList,
         mbid: (prefill && prefill.mbid) || "",
+        cover: (prefill && prefill.cover) || "",
         addedAt: (prefill && prefill.addedAt) || new Date().toISOString()
       };
       persistAlbum(album);
@@ -471,7 +530,7 @@
     openModal(
       '<button class="back-link" id="backBtn">‹ Back</button>' +
       '<h2 id="modalTitle">Search by album, artist, or UPC</h2>' +
-      '<p class="modal-sub">Looked up live in MusicBrainz — album art and the full track list come along for the ride.</p>' +
+      '<p class="modal-sub">Looked up live in Discogs — album art, format, and the full track list come along for the ride.</p>' +
       '<div class="lookup-row">' +
         '<input id="lookupInput" type="text" placeholder="e.g. Rumours Fleetwood Mac, or a UPC barcode number">' +
         '<button class="btn btn-primary" id="lookupGo">Look up</button>' +
@@ -491,49 +550,55 @@
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); run(); } });
   }
 
-  function mapMediaFormat(s) {
-    var v = String(s || "").toLowerCase();
-    if (v.indexOf("vinyl") !== -1) return "Vinyl";
-    if (v.indexOf("cassette") !== -1) return "Cassette";
-    if (v.indexOf("cd") !== -1) return "CD";
-    if (v.indexOf("digital") !== -1) return "Digital";
-    return "Other";
-  }
-  function creditName(credits) {
-    return (credits || []).map(function (c) { return c.name || (c.artist && c.artist.name) || ""; }).filter(Boolean).join(", ");
-  }
-
   async function runMusicLookup(query, backLabel) {
     var statusEl = document.getElementById("lookupStatus");
     var go = document.getElementById("lookupGo");
-    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Searching MusicBrainz…';
+    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Searching Discogs…';
     if (go) go.disabled = true;
+
+    if (!discogsConfigured()) {
+      renderAlbumForm({}, {
+        backLabel: backLabel, onBack: renderAlbumOptionScreen,
+        note: "Album lookup isn't connected to Discogs yet — the site owner needs to deploy the lookup proxy (see the notes in music.js), or paste a token at the top of music.js for personal use. Until then, enter albums by hand below."
+      });
+      return;
+    }
 
     var digits = query.replace(/[-\s]/g, "");
     var looksLikeUpc = /^\d{8,14}$/.test(digits);
-    var mbQuery = looksLikeUpc ? "barcode:" + digits : query;
+    var searchQ = looksLikeUpc ? "barcode:" + digits : query;
     var scratchPrefill = looksLikeUpc ? {} : { title: query };
 
+    function fmtFromDiscogs(formats) {
+      var f = (formats && formats.length && formats[0].name || "").toLowerCase();
+      if (f.indexOf("vinyl") !== -1) return "Vinyl";
+      if (f.indexOf("cassette") !== -1) return "Cassette";
+      if (f.indexOf("cd") !== -1 || f.indexOf("album") !== -1) return "CD";
+      if (f.indexOf("file") !== -1 || f.indexOf("digital") !== -1) return "Digital";
+      return "Other";
+    }
     function releaseToCandidate(r) {
-      var media = r.media || [];
+      var artist = (r.artists || []).map(function (a) { return a.name; }).filter(Boolean).join(", ");
+      var img = (r.images && r.images.length && (r.images[0].uri || r.images[0].resource_url)) || "";
       return {
-        mbid: r.id,
+        mbid: String(r.id),
         title: r.title || "",
-        artist: creditName(r["artist-credit"]),
-        year: r.date ? parseInt(String(r.date).slice(0, 4), 10) || null : null,
-        format: mapMediaFormat(media.length && media[0].format),
-        trackCount: media.reduce(function (n, m) { return n + (m["track-count"] || 0); }, 0)
+        artist: artist,
+        year: r.year || null,
+        format: fmtFromDiscogs(r.formats),
+        trackCount: r.tracklist ? r.tracklist.length : 0,
+        cover: img
       };
     }
 
     try {
-      var data = await fetchJson("https://musicbrainz.org/ws/2/release/?query=" + encodeURIComponent(mbQuery) + "&fmt=json&limit=5");
-      var candidates = (data.releases || []).map(releaseToCandidate).filter(function (c) { return c.title || c.artist; });
+      var data = await fetchDiscogs("/database/search?q=" + encodeURIComponent(searchQ) + "&type=release&per_page=5");
+      var candidates = (data.results || []).map(releaseToCandidate).filter(function (c) { return c.title || c.artist; });
 
       if (candidates.length === 0) {
         renderAlbumForm(scratchPrefill, {
           backLabel: backLabel, onBack: renderAlbumOptionScreen,
-          note: "Couldn't find that one in MusicBrainz — no trouble, just fill in what you know below."
+          note: "Couldn't find that one in Discogs — no trouble, just fill in what you know below."
         });
       } else if (candidates.length === 1) {
         await renderAlbumReview(candidates[0], backLabel);
@@ -541,36 +606,45 @@
         renderMusicCandidateScreen(candidates, query, backLabel);
       }
     } catch (e) {
+      var note = !DISCOGS_PROXY && /token/i.test(String(e && e.message))
+        ? "Discogs rejected the token — check it at the top of music.js (discogs.com → Settings → Developers)."
+        : "The lookup didn't go through (offline, or Discogs is unreachable) — fill in the details by hand.";
       renderAlbumForm({ title: scratchPrefill.title || "", artist: "", format: "CD", tracks: [] }, {
-        backLabel: backLabel, onBack: renderAlbumOptionScreen,
-        note: "The lookup didn't go through (offline, or MusicBrainz is unreachable) — fill in the details by hand."
+        backLabel: backLabel, onBack: renderAlbumOptionScreen, note: note
       });
     }
   }
 
-  async function fetchMusicRelease(mbid) {
-    var rel = await fetchJson("https://musicbrainz.org/ws/2/release/" + encodeURIComponent(mbid) + "?inc=recordings+artist-credits+tags&fmt=json");
-    var tracks = [];
-    (rel.media || []).forEach(function (m) {
-      (m.tracks || []).forEach(function (t) {
-        var name = t.title || (t.recording && t.recording.title) || "";
-        if (name) tracks.push(name);
-      });
-    });
-    var year = rel.date ? parseInt(String(rel.date).slice(0, 4), 10) || null : null;
+  async function fetchMusicRelease(dgid) {
+    var rel = await fetchDiscogs("/releases/" + encodeURIComponent(dgid));
+    var tracks = (rel.tracklist || []).map(function (t) {
+      return String(t.title || "").trim();
+    }).filter(Boolean);
+    var artist = (rel.artists || []).map(function (a) { return a.name; }).filter(Boolean).join(", ");
+    var img = (rel.images && rel.images.length && (rel.images[0].uri || rel.images[0].resource_url)) || "";
+    var f = ((rel.formats && rel.formats.length && rel.formats[0].name) || "").toLowerCase();
+    var format = "Other";
+    if (f.indexOf("vinyl") !== -1) format = "Vinyl";
+    else if (f.indexOf("cassette") !== -1) format = "Cassette";
+    else if (f.indexOf("cd") !== -1 || f.indexOf("album") !== -1) format = "CD";
+    else if (f.indexOf("file") !== -1 || f.indexOf("digital") !== -1) format = "Digital";
     var genre = "";
-    if (rel.tags && rel.tags.length && rel.tags[0].name) {
-      var g = String(rel.tags[0].name);
-      genre = g.charAt(0).toUpperCase() + g.slice(1);
+    if (rel.genres && rel.genres.length) {
+      genre = String(rel.genres[0]);
+      genre = genre.charAt(0).toUpperCase() + genre.slice(1);
+    } else if (rel.styles && rel.styles.length) {
+      genre = String(rel.styles[0]);
+      genre = genre.charAt(0).toUpperCase() + genre.slice(1);
     }
     return {
-      mbid: mbid,
+      mbid: String(rel.id),
       title: rel.title || "",
-      artist: creditName(rel["artist-credit"]),
-      year: year,
-      format: mapMediaFormat((rel.media && rel.media[0] && rel.media[0].format) || ""),
+      artist: artist,
+      year: rel.year || null,
+      format: format,
       genre: genre,
-      tracks: tracks
+      tracks: tracks,
+      cover: img
     };
   }
 
@@ -580,9 +654,10 @@
     try {
       var full = await fetchMusicRelease(candidate.mbid);
       full.genre = full.genre || candidate.genre || "";
+      if (!full.cover && candidate.cover) full.cover = candidate.cover;
       renderAlbumForm(full, {
         backLabel: backLabel, onBack: renderAlbumOptionScreen, reviewMode: true,
-        note: "Filled in live from MusicBrainz — give it a quick check before saving."
+        note: "Filled in live from Discogs — give it a quick check before saving."
       });
     } catch (e) {
       renderAlbumForm({ title: candidate.title, artist: candidate.artist, format: candidate.format || "CD", year: candidate.year, genre: "", tracks: [], mbid: candidate.mbid }, {

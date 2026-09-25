@@ -206,10 +206,11 @@
       "alter publication supabase_realtime add table public.books;\n" +
       "create table if not exists public.albums (\n" +
       "  id text primary key, title text not null, artist text not null,\n" +
-      "  format text, year int, genre text, tracks text, mbid text,\n" +
+      "  format text, year int, genre text, tracks text, mbid text, cover text,\n" +
       "  added_at timestamptz not null default now(),\n" +
       "  user_id uuid not null references auth.users(id) on delete cascade\n" +
       ");\n" +
+      "alter table public.albums add column if not exists cover text;\n" +
       "alter table public.albums enable row level security;\n" +
       "drop policy if exists \"select own albums\" on public.albums;\n" +
       "create policy \"select own albums\" on public.albums for select using (auth.uid() = user_id);\n" +

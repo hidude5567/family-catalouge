@@ -754,3 +754,6 @@ select.genre-filter {
 .qty-btn:hover { border-color: var(--forest); }
 
 a.shelf-tab { text-decoration: none; }
+
+/* the hidden attribute must always win, even over display rules */
+[hidden] { display: none !important; }
