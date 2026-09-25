@@ -44,8 +44,11 @@
   function fetchDiscogs(path, ms) {
     if (DISCOGS_PROXY) {
       // proxy mode: server holds the token; only /database/search and
-      // /releases/* are allowed through
+      // /releases/* are allowed through. Supabase verifies JWT on edge
+      // functions by default, so we send the project's anon key (which is
+      // already public in this file — it's meant for browsers).
       return fetch(DISCOGS_PROXY + "?path=" + encodeURIComponent(path), {
+        headers: { Authorization: "Bearer " + SUPABASE_ANON_KEY },
         signal: AbortSignal.timeout(ms || 15000)
       }).then(function (res) {
         if (!res.ok) throw new Error("proxy http " + res.status);
