@@ -7,7 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=16">
+<base target="_blank">
 </head>
 <body>
 <!-- auth.js on login.html redirects here; if no valid session exists, app.js sends you back to login.html -->
@@ -21,10 +22,17 @@
     <div>
       <h1 class="masthead-title">The Catalog</h1>
       <p class="masthead-sub">a running record of what's on the shelf</p>
+      <p class="build-tag mono">build 2.3.1</p>
       <div class="shelf-tabs" role="tablist" aria-label="Catalogue sections">
-        <a class="shelf-tab active" href="index.html" role="tab" aria-selected="true">Books</a>
-        <a class="shelf-tab" href="music.html" role="tab" aria-selected="false">Music</a>
+        <button type="button" class="shelf-tab active" data-goto="index.html" role="tab" aria-selected="true">Books</button>
+        <button type="button" class="shelf-tab" data-goto="music.html" role="tab" aria-selected="false">Music</button>
       </div>
+      <script>
+      // Same-tab navigation, immune to injected <base> tags or extensions.
+      Array.prototype.forEach.call(document.querySelectorAll("[data-goto]"), function (b) {
+        b.addEventListener("click", function () { window.location.href = b.getAttribute("data-goto"); });
+      });
+      </script>
     </div>
     <div class="header-actions">
       <span class="mono whoami" id="whoami"></span>
@@ -62,6 +70,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
